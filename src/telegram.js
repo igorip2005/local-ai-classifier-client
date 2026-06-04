@@ -1,3 +1,8 @@
+const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
+const TELEGRAM_SAFE_MESSAGE_CHARS = 3600;
+const DEFAULT_SNIPPET_CHARS = 700;
+const MIN_SNIPPET_CHARS = 220;
+
 export async function sendTelegramNotification({ requestId, row, token, chatId }) {
   if (!token || !chatId) return { skipped: true };
 
@@ -22,6 +27,22 @@ export async function sendTelegramNotification({ requestId, row, token, chatId }
 }
 
 export function buildTelegramMessage({ requestId, row }) {
+  return fitTelegramMessage({ requestId, row, snippetChars: DEFAULT_SNIPPET_CHARS });
+}
+
+function fitTelegramMessage({ requestId, row, snippetChars }) {
+  let message = buildTelegramMessageWithLimit({ requestId, row, snippetChars });
+  while (message.length > TELEGRAM_SAFE_MESSAGE_CHARS && snippetChars > MIN_SNIPPET_CHARS) {
+    snippetChars = Math.max(MIN_SNIPPET_CHARS, Math.floor(snippetChars * 0.7));
+    message = buildTelegramMessageWithLimit({ requestId, row, snippetChars });
+  }
+  if (message.length > TELEGRAM_MAX_MESSAGE_CHARS) {
+    return `${message.slice(0, TELEGRAM_MAX_MESSAGE_CHARS - 40)}\n\n… <i>message trimmed</i>`;
+  }
+  return message;
+}
+
+function buildTelegramMessageWithLimit({ requestId, row, snippetChars }) {
   const ok = row.status_code >= 200 && row.status_code < 300 && !row.error;
   const title = ok ? '✅ <b>AI request completed</b>' : '⚠️ <b>AI request failed</b>';
   const status = ok ? `HTTP ${row.status_code}` : `HTTP ${row.status_code}${row.error ? ' · error' : ''}`;
@@ -33,6 +54,8 @@ export function buildTelegramMessage({ requestId, row }) {
   const speed = formatSpeed(row);
   const gpu = formatGpu(row.gpu_after, row.gpu_delta);
   const cpu = formatOllamaCpu(row.process_delta);
+  const inputSnippet = extractRequestText(row.request_body, snippetChars);
+  const outputSnippet = extractResponseText(row.response_body, snippetChars);
 
   const lines = [
     title,
@@ -41,6 +64,11 @@ export function buildTelegramMessage({ requestId, row }) {
     `⏱ <b>Time:</b> ${formatMs(row.duration_ms)} ${speed}`.trim(),
     `🧮 <b>Tokens:</b> ${tokens}`,
     `📊 <b>Status:</b> ${escapeHtml(status)}`,
+    '',
+    `📝 <b>Input:</b>`,
+    `<blockquote>${escapeHtml(inputSnippet || 'n/a')}</blockquote>`,
+    `💬 <b>Output:</b>`,
+    `<blockquote>${escapeHtml(outputSnippet || 'n/a')}</blockquote>`,
     '',
     `🖥 <b>GPU:</b> ${escapeHtml(gpu)}`,
     `⚙️ <b>Ollama CPU:</b> ${escapeHtml(cpu)}`,
@@ -55,6 +83,43 @@ export function buildTelegramMessage({ requestId, row }) {
   }
 
   return lines.join('\n');
+}
+
+function extractRequestText(body, maxChars) {
+  if (!body) return '';
+  if (typeof body.prompt === 'string') return truncateClean(body.prompt, maxChars);
+  if (Array.isArray(body.messages)) {
+    const text = body.messages
+      .map((message) => {
+        const role = message?.role ? `${message.role}: ` : '';
+        return `${role}${contentToText(message?.content)}`;
+      })
+      .filter(Boolean)
+      .join('\n');
+    return truncateClean(text, maxChars);
+  }
+  return truncateClean(JSON.stringify(body), maxChars);
+}
+
+function extractResponseText(body, maxChars) {
+  if (!body) return '';
+  if (typeof body.response === 'string') return truncateClean(body.response, maxChars);
+  if (typeof body.message?.content === 'string') return truncateClean(body.message.content, maxChars);
+  if (typeof body.error === 'string') return truncateClean(body.error, maxChars);
+  return truncateClean(JSON.stringify(body), maxChars);
+}
+
+function contentToText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map((part) => {
+      if (typeof part === 'string') return part;
+      if (typeof part?.text === 'string') return part.text;
+      return JSON.stringify(part);
+    }).join(' ');
+  }
+  if (content == null) return '';
+  return JSON.stringify(content);
 }
 
 function formatTokens(row) {
@@ -110,4 +175,10 @@ function escapeHtml(value) {
 function truncate(value, max) {
   const text = String(value ?? '');
   return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function truncateClean(value, max) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1)).trim()}…`;
 }
