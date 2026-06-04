@@ -1,0 +1,36 @@
+{
+  "name": "local-ai-classifier",
+  "version": "0.1.0",
+  "description": "Local Ollama wrapper with PostgreSQL request and hardware telemetry logging.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node scripts/migrate.js",
+    "check": "node --check src/server.js && node --check src/db.js && node --check src/metrics.js && node --check scripts/migrate.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/igorip2005/local-ai-classifier.git"
+  },
+  "keywords": [
+    "ollama",
+    "postgres",
+    "telemetry",
+    "classifier"
+  ],
+  "author": "Igor / KLO4",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/igorip2005/local-ai-classifier/issues"
+  },
+  "homepage": "https://github.com/igorip2005/local-ai-classifier#readme",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "pg": "^8.16.3",
+    "uuid": "^13.0.0",
+    "zod": "^4.1.13"
+  }
+}

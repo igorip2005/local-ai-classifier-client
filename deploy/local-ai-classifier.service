@@ -1,0 +1,15 @@
+[Unit]
+Description=Local AI Classifier Ollama Wrapper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/www/projects/local-ai-classifier
+EnvironmentFile=/www/projects/local-ai-classifier/.env
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
