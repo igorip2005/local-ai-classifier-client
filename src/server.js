@@ -3,6 +3,7 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { collectMetrics, diffMetrics } from './metrics.js';
 import { insertAiRequest, pool } from './db.js';
+import { sendTelegramNotification } from './telegram.js';
 
 const app = express();
 app.set('trust proxy', true);
@@ -16,6 +17,9 @@ const DEFAULT_THINK = parseBool(process.env.DEFAULT_THINK, false);
 const DEFAULT_STREAM = parseBool(process.env.DEFAULT_STREAM, false);
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 120_000);
 const LOG_FULL_BODIES = parseBool(process.env.LOG_FULL_BODIES, true);
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+const TELEGRAM_NOTIFY = parseBool(process.env.TELEGRAM_NOTIFY, Boolean(TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID));
 
 app.use((req, res, next) => {
   if (!process.env.API_KEY) return next();
@@ -124,7 +128,9 @@ async function proxyOllama(req, res, ollamaPath) {
       meta: { wrapper_version: '0.1.0', ollama_path: ollamaPath },
     };
 
-    insertAiRequest(row).catch((e) => console.error('failed to persist ai request', requestId, e));
+    insertAiRequest(row)
+      .then(() => sendTelegramNotification({ requestId, row, token: TELEGRAM_NOTIFY ? TELEGRAM_BOT_TOKEN : '', chatId: TELEGRAM_CHAT_ID }))
+      .catch((e) => console.error('failed to persist ai request or notify', requestId, e));
   }
 }
 
