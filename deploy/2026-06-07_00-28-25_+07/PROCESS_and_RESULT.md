@@ -215,6 +215,31 @@ Still external/not locally provable:
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
 
+Additional audit verification at 2026-06-07 05:41 +07:
+
+- Rechecked the client side of `doc/IMPLEMENTATION_DETAILS.md` sections 15, 24 and 25 while auditing unfinished/not-tested items.
+- No new client code change was needed in this pass.
+- Client remains covered for:
+  - host_id persistence;
+  - fake router WebSocket register/heartbeat/reconnect;
+  - Ollama health/model parsing;
+  - task execution, cancellation and deploy command handling;
+  - local status endpoint;
+  - production config hardening and secret redaction.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client `npm test` passed: 17 passed test files and 46 passed tests, plus 1 skipped opt-in local Ollama test.
+- Client `RUN_LOCAL_OLLAMA=1 npm run test:local-ollama` passed with real `qwen2.5:0.5b`.
+- Router local e2e passed with this client build after the router deploy smoke readiness fix.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.
+
 Additional client production config hardening at 2026-06-07 05:04 +07:
 
 - Rechecked client config against router `doc/IMPLEMENTATION_DETAILS.md` sections 15, 17, 20, 21, 24 and 25.
