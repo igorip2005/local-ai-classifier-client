@@ -98,29 +98,49 @@ export type DeployResultPayload = {
 
 const jsonObject = z.record(z.string(), z.unknown());
 
-const taskStartPayloadSchema = z.object({
+const taskOptionsSchema = z.object({
+  temperature: z.number(),
+  num_ctx: z.number().int().positive(),
+  think: z.boolean(),
+  stream: z.boolean()
+});
+
+const classifyTaskStartPayloadSchema = z.object({
   task_id: z.string().min(1),
   job_id: z.string().min(1).optional(),
-  kind: z.enum(['classify_message', 'classify_batch_item', 'chat_completion']),
+  kind: z.enum(['classify_message', 'classify_batch_item']),
   priority: z.number().int(),
   model: z.string().min(1),
   timeout_ms: z.number().int().positive(),
   input: z.object({
-    text: z.string().optional(),
-    messages: z.array(z.object({
-      role: z.string().min(1),
-      content: z.string().min(1)
-    })).optional(),
+    text: z.string().min(1),
     classes: z.array(z.string().min(1)).optional(),
     metadata: jsonObject.optional()
   }),
-  options: z.object({
-    temperature: z.number(),
-    num_ctx: z.number().int().positive(),
-    think: z.boolean(),
-    stream: z.boolean()
-  })
+  options: taskOptionsSchema
 });
+
+const chatTaskStartPayloadSchema = z.object({
+  task_id: z.string().min(1),
+  job_id: z.string().min(1).optional(),
+  kind: z.literal('chat_completion'),
+  priority: z.number().int(),
+  model: z.string().min(1),
+  timeout_ms: z.number().int().positive(),
+  input: z.object({
+    messages: z.array(z.object({
+      role: z.string().min(1),
+      content: z.string().min(1)
+    })).min(1),
+    metadata: jsonObject.optional()
+  }),
+  options: taskOptionsSchema
+});
+
+const taskStartPayloadSchema = z.discriminatedUnion('kind', [
+  classifyTaskStartPayloadSchema,
+  chatTaskStartPayloadSchema
+]);
 
 const deployUpdatePayloadSchema = z.object({
   deploy_id: z.string().min(1),

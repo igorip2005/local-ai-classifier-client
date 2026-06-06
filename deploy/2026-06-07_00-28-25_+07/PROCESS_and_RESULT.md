@@ -290,3 +290,28 @@ Still external/not locally provable:
 - Client user service must still be installed and verified on each target client host.
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
+
+Additional kind-aware task command validation hardening at 2026-06-07 04:18 +07:
+
+- Rechecked client `task_start` validation against router `doc/IMPLEMENTATION_DETAILS.md` sections 8, 12, 23, 24 and 27.
+- Found that the new router-command schema validated general envelope shape, but did not yet enforce task input by `kind`.
+- Hardened client task command validation:
+  - `classify_message` and `classify_batch_item` require non-empty `input.text`;
+  - `chat_completion` requires at least one message in `input.messages`;
+  - invalid task commands fail at the protocol boundary and do not start Ollama work.
+- Extended router-connection integration coverage with:
+  - classify task missing text;
+  - chat task missing messages.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted router-connection integration passed: 1 test file and 10 tests.
+- Client `npm test` passed: 16 passed test files and 38 passed tests, plus 1 skipped local Ollama test file.
+- Router `npm run test:e2e` first hit a transient post-deploy smoke disconnect, then passed on rerun with this client build: classify, chat, import, batch, export and deploy with fake Ollama.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.

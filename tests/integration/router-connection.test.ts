@@ -105,6 +105,32 @@ describe('RouterConnection', () => {
             }
           }));
           socket.send(JSON.stringify({
+            type: 'task_start',
+            request_id: 'invalid-task-2',
+            payload: {
+              task_id: 'task-invalid-2',
+              kind: 'classify_message',
+              priority: 80,
+              model: 'qwen2.5:0.5b',
+              timeout_ms: 5000,
+              input: { classes: ['sales', 'support', 'spam', 'other'] },
+              options: { temperature: 0, num_ctx: 1024, think: false, stream: false }
+            }
+          }));
+          socket.send(JSON.stringify({
+            type: 'task_start',
+            request_id: 'invalid-task-3',
+            payload: {
+              task_id: 'task-invalid-3',
+              kind: 'chat_completion',
+              priority: 70,
+              model: 'qwen2.5:0.5b',
+              timeout_ms: 5000,
+              input: { metadata: { invalid: true } },
+              options: { temperature: 0, num_ctx: 1024, think: false, stream: false }
+            }
+          }));
+          socket.send(JSON.stringify({
             type: 'deploy_update',
             request_id: 'invalid-deploy-1',
             payload: {
@@ -134,12 +160,12 @@ describe('RouterConnection', () => {
     connection.on('protocol_error', (error) => protocolErrors.push(error));
     connection.connect();
 
-    await waitFor(() => protocolErrors.length >= 4, 1500);
+    await waitFor(() => protocolErrors.length >= 6, 1500);
     await new Promise((resolve) => setTimeout(resolve, 50));
     connection.close();
     await rm(dir, { recursive: true, force: true });
 
-    expect(protocolErrors).toHaveLength(4);
+    expect(protocolErrors).toHaveLength(6);
     const outboundTypes = received.map((raw) => JSON.parse(raw).type);
     expect(outboundTypes).not.toContain('task_error');
     expect(outboundTypes).not.toContain('deploy_result');
