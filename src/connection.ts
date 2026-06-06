@@ -11,7 +11,11 @@ import { runTask } from './task-runner.js';
 export class RouterConnection extends EventEmitter {
   private socket: WebSocket | null = null;
   private fastTimer: NodeJS.Timeout | null = null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
   private activeTasks = 0;
+  private reconnectAttempt = 0;
+  private shouldReconnect = true;
+  private loadedModels: string[] = [];
 
   constructor(
     private readonly config: ClientConfig,
@@ -22,23 +26,50 @@ export class RouterConnection extends EventEmitter {
   }
 
   connect(): void {
+    this.clearReconnectTimer();
     this.socket = new WebSocket(this.config.routerUrl, { handshakeTimeout: 10_000 });
     this.socket.on('open', () => void this.register());
     this.socket.on('message', (data) => this.handleMessage(data.toString()));
-    this.socket.on('close', () => this.stopHeartbeat());
-    this.socket.on('error', (error) => this.emit('connection_error', error));
+    this.socket.on('close', () => {
+      this.stopHeartbeat();
+      this.scheduleReconnect();
+    });
+    this.socket.on('error', (error) => {
+      this.emit('connection_error', error);
+      this.socket?.close();
+    });
   }
 
   close(): void {
+    this.shouldReconnect = false;
+    this.clearReconnectTimer();
     this.stopHeartbeat();
     this.socket?.close();
   }
 
   private async register(): Promise<void> {
     const payload = await buildRegisterPayload(this.config, this.hostId, this.version);
+    this.reconnectAttempt = 0;
+    this.loadedModels = payload.capabilities.models.filter((model) => model.loaded).map((model) => model.name);
     this.send({ type: 'register', request_id: randomUUID(), payload });
     this.startHeartbeat();
     this.emit('registered_sent', payload);
+  }
+
+  private scheduleReconnect(): void {
+    if (!this.shouldReconnect || this.reconnectTimer) return;
+    const delayMs = Math.min(30_000, 500 * 2 ** this.reconnectAttempt);
+    this.reconnectAttempt += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delayMs);
+    this.emit('reconnect_scheduled', { delay_ms: delayMs, attempt: this.reconnectAttempt });
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
   }
 
   private startHeartbeat(): void {
@@ -61,7 +92,7 @@ export class RouterConnection extends EventEmitter {
       status: this.activeTasks > 0 ? 'busy' : availability.can_accept_tasks ? 'idle' : 'paused',
       active_tasks: this.activeTasks,
       queue_depth: 0,
-      models_loaded: [],
+      models_loaded: this.loadedModels,
       resources: { ...resources, availability }
     };
     this.send({ type: 'heartbeat', request_id: randomUUID(), payload });

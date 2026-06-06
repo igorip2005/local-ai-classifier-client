@@ -42,12 +42,45 @@ describe('RouterConnection', () => {
     expect(JSON.parse(received[0] ?? '{}').type).toBe('register');
     expect(JSON.parse(received[1] ?? '{}').type).toBe('heartbeat');
   });
+
+  it('reconnects with backoff after router closes the socket', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-reconnect-'));
+    let registerCount = 0;
+    server = http.createServer();
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (socket) => {
+      socket.on('message', (data) => {
+        const envelope = JSON.parse(data.toString()) as { type: string };
+        if (envelope.type !== 'register') return;
+        registerCount += 1;
+        if (registerCount === 1) socket.close();
+      });
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+
+    const config = loadConfig({
+      ROUTER_URL: `ws://127.0.0.1:${address.port}`,
+      CLIENT_DATA_DIR: dir,
+      CLIENT_FAST_HEARTBEAT_MS: '50',
+      CLIENT_NAME: 'reconnect-client'
+    });
+    const connection = new RouterConnection(config, 'host-reconnect-id', '0.1.0');
+    connection.connect();
+
+    await waitFor(() => registerCount >= 2, 2500);
+    connection.close();
+    await rm(dir, { recursive: true, force: true });
+
+    expect(registerCount).toBeGreaterThanOrEqual(2);
+  });
 });
 
-async function waitFor(predicate: () => boolean): Promise<void> {
+async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
   const started = Date.now();
   while (!predicate()) {
-    if (Date.now() - started > 1000) throw new Error('timed out');
+    if (Date.now() - started > timeoutMs) throw new Error('timed out');
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
