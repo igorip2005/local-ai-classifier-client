@@ -8,6 +8,7 @@ export type RegisterPayload = {
   host_id: string;
   setup_token?: string;
   client_version: string;
+  build_id?: string;
   hostname: string;
   platform: { os: string; arch: string };
   ollama: { base_url: string; version: string | null; ok: boolean };
@@ -41,6 +42,7 @@ export type HeartbeatPayload = {
 export type CapabilitiesUpdatePayload = {
   host_id: string;
   client_version: string;
+  build_id?: string;
   ollama: { base_url: string; version: string | null; ok: boolean };
   capabilities: HostCapabilities;
 };
@@ -75,4 +77,19 @@ export type TaskErrorPayload = {
   job_id?: string;
   status: 'failed';
   error: { code: string; message: string; details?: unknown };
+};
+
+export type DeployUpdatePayload = {
+  deploy_id: string;
+  target_version: string;
+  artifact_url: string;
+  artifact_sha256: string;
+};
+
+export type DeployResultPayload = {
+  deploy_id: string;
+  host_id: string;
+  status: 'succeeded' | 'failed';
+  client_version?: string;
+  error?: { code: string; message: string };
 };

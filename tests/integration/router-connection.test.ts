@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -211,6 +212,61 @@ describe('RouterConnection', () => {
     }), 1500);
     connection.close();
     await new Promise<void>((resolve) => ollama.close(() => resolve()));
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('runs enabled deploy_update commands and reports deploy_result', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-deploy-ws-'));
+    const command = path.join(dir, 'deploy-command.sh');
+    await writeFile(command, '#!/bin/sh\nexit 0\n');
+    await chmod(command, 0o700);
+    const artifact = Buffer.from('client artifact');
+    const artifactServer = http.createServer((_req, res) => res.end(artifact));
+    await new Promise<void>((resolve) => artifactServer.listen(0, '127.0.0.1', resolve));
+    const artifactAddress = artifactServer.address();
+    if (!artifactAddress || typeof artifactAddress === 'string') throw new Error('missing artifact port');
+    const received: string[] = [];
+    server = http.createServer();
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (socket) => {
+      socket.on('message', (data) => {
+        const raw = data.toString();
+        received.push(raw);
+        const envelope = JSON.parse(raw) as { type: string };
+        if (envelope.type === 'register') {
+          socket.send(JSON.stringify({
+            type: 'deploy_update',
+            request_id: 'deploy-request-1',
+            payload: {
+              deploy_id: 'deploy-1',
+              target_version: '0.1.1',
+              artifact_url: `http://127.0.0.1:${artifactAddress.port}/client.tgz`,
+              artifact_sha256: createHash('sha256').update(artifact).digest('hex')
+            }
+          }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+
+    const config = loadConfig({
+      ROUTER_URL: `ws://127.0.0.1:${address.port}`,
+      CLIENT_DATA_DIR: dir,
+      CLIENT_DEPLOY_ENABLED: 'true',
+      CLIENT_DEPLOY_COMMAND: command,
+      CLIENT_NAME: 'deploy-client'
+    });
+    const connection = new RouterConnection(config, 'host-deploy-id', '0.1.0');
+    connection.connect();
+
+    await waitFor(() => received.some((raw) => {
+      const envelope = JSON.parse(raw);
+      return envelope.type === 'deploy_result' && envelope.payload.status === 'succeeded';
+    }), 1500);
+    connection.close();
+    await new Promise<void>((resolve) => artifactServer.close(() => resolve()));
     await rm(dir, { recursive: true, force: true });
   });
 });

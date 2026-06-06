@@ -19,6 +19,7 @@ export async function buildRegisterPayload(
   const payload: RegisterPayload = {
     host_id: hostId,
     client_version: version,
+    build_id: config.buildId,
     hostname: config.clientName || os.hostname(),
     platform: { os: os.platform(), arch: os.arch() },
     ollama: { base_url: config.ollamaBaseUrl, version: health.version, ok: health.ok },

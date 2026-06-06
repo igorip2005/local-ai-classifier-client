@@ -5,9 +5,10 @@ import type { ClientConfig } from './config.js';
 import { buildRegisterPayload } from './capabilities.js';
 import { collectResources } from './metrics.js';
 import { evaluateAvailability } from './availability.js';
-import type { Envelope, HeartbeatPayload, TaskErrorPayload, TaskResultPayload, TaskStartPayload } from './protocol.js';
+import type { DeployResultPayload, DeployUpdatePayload, Envelope, HeartbeatPayload, TaskErrorPayload, TaskResultPayload, TaskStartPayload } from './protocol.js';
 import { runTask } from './task-runner.js';
 import { readManualEnabled } from './control.js';
+import { runDeployUpdate } from './deploy.js';
 
 export class RouterConnection extends EventEmitter {
   private socket: WebSocket | null = null;
@@ -107,6 +108,7 @@ export class RouterConnection extends EventEmitter {
       payload: {
         host_id: this.hostId,
         client_version: this.version,
+        build_id: this.config.buildId,
         ollama: payload.ollama,
         capabilities: payload.capabilities
       }
@@ -140,6 +142,9 @@ export class RouterConnection extends EventEmitter {
       const envelope = JSON.parse(raw) as Envelope;
       if (envelope.type === 'task_start') {
         void this.handleTaskStart(envelope.payload as TaskStartPayload);
+      }
+      if (envelope.type === 'deploy_update') {
+        void this.handleDeployUpdate(envelope.payload as DeployUpdatePayload);
       }
       this.emit(envelope.type, envelope.payload);
     } catch (error) {
@@ -176,6 +181,15 @@ export class RouterConnection extends EventEmitter {
     };
     if (task.job_id) payload.job_id = task.job_id;
     this.send({ type: 'task_error', request_id: randomUUID(), payload });
+  }
+
+  private async handleDeployUpdate(payload: DeployUpdatePayload): Promise<void> {
+    const result = await runDeployUpdate(this.config, this.hostId, this.version, payload);
+    this.sendDeployResult(result);
+  }
+
+  private sendDeployResult(payload: DeployResultPayload): void {
+    this.send({ type: 'deploy_result', request_id: randomUUID(), payload });
   }
 }
 
