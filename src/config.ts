@@ -14,6 +14,7 @@ const configSchema = z.object({
   fastHeartbeatMs: z.coerce.number().int().positive().default(5000),
   fullHeartbeatMs: z.coerce.number().int().positive().default(15000),
   clientDataDir: z.string().min(1).default('/www/projects/local-ai-classifier-client/var'),
+  statusPort: z.coerce.number().int().min(0).max(65535).default(0),
   logLevel: z.string().default('info')
 });
 
@@ -33,6 +34,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ClientConfig {
     fastHeartbeatMs: env.CLIENT_FAST_HEARTBEAT_MS,
     fullHeartbeatMs: env.CLIENT_FULL_HEARTBEAT_MS,
     clientDataDir: env.CLIENT_DATA_DIR,
+    statusPort: env.CLIENT_STATUS_PORT,
     logLevel: env.LOG_LEVEL
   });
 }

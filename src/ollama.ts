@@ -38,6 +38,28 @@ export class OllamaClient {
     return tags.map((model) => ({ ...model, loaded: loaded.has(model.name) }));
   }
 
+  async hasModel(modelName: string): Promise<boolean> {
+    const models = await this.discoverModels();
+    return models.some((model) => model.name === modelName);
+  }
+
+  async pullModel(modelName: string, timeoutMs: number): Promise<void> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${this.baseUrl}/api/pull`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: modelName, stream: false }),
+        signal: controller.signal
+      });
+      const text = await response.text();
+      if (!response.ok) throw new Error(`Ollama pull returned ${response.status}: ${text.slice(0, 200)}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async chat(body: Record<string, unknown>, timeoutMs: number): Promise<Record<string, unknown>> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);

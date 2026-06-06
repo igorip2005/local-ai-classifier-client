@@ -12,11 +12,13 @@ import { readManualEnabled } from './control.js';
 export class RouterConnection extends EventEmitter {
   private socket: WebSocket | null = null;
   private fastTimer: NodeJS.Timeout | null = null;
+  private fullTimer: NodeJS.Timeout | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private activeTasks = 0;
   private reconnectAttempt = 0;
   private shouldReconnect = true;
   private loadedModels: string[] = [];
+  private capabilitiesSignature = '';
 
   constructor(
     private readonly config: ClientConfig,
@@ -52,8 +54,10 @@ export class RouterConnection extends EventEmitter {
     const payload = await buildRegisterPayload(this.config, this.hostId, this.version);
     this.reconnectAttempt = 0;
     this.loadedModels = payload.capabilities.models.filter((model) => model.loaded).map((model) => model.name);
+    this.capabilitiesSignature = signature(payload.capabilities.models.map((model) => `${model.name}:${model.loaded}`).sort());
     this.send({ type: 'register', request_id: randomUUID(), payload });
     this.startHeartbeat();
+    this.startCapabilitiesRefresh();
     this.emit('registered_sent', payload);
   }
 
@@ -81,7 +85,32 @@ export class RouterConnection extends EventEmitter {
 
   private stopHeartbeat(): void {
     if (this.fastTimer) clearInterval(this.fastTimer);
+    if (this.fullTimer) clearInterval(this.fullTimer);
     this.fastTimer = null;
+    this.fullTimer = null;
+  }
+
+  private startCapabilitiesRefresh(): void {
+    if (this.fullTimer) clearInterval(this.fullTimer);
+    this.fullTimer = setInterval(() => void this.refreshCapabilities(), this.config.fullHeartbeatMs);
+  }
+
+  private async refreshCapabilities(): Promise<void> {
+    const payload = await buildRegisterPayload(this.config, this.hostId, this.version);
+    const nextSignature = signature(payload.capabilities.models.map((model) => `${model.name}:${model.loaded}`).sort());
+    this.loadedModels = payload.capabilities.models.filter((model) => model.loaded).map((model) => model.name);
+    if (nextSignature === this.capabilitiesSignature) return;
+    this.capabilitiesSignature = nextSignature;
+    this.send({
+      type: 'capabilities_update',
+      request_id: randomUUID(),
+      payload: {
+        host_id: this.hostId,
+        client_version: this.version,
+        ollama: payload.ollama,
+        capabilities: payload.capabilities
+      }
+    });
   }
 
   private async sendHeartbeat(): Promise<void> {
@@ -147,4 +176,8 @@ export class RouterConnection extends EventEmitter {
     if (task.job_id) payload.job_id = task.job_id;
     this.send({ type: 'task_error', request_id: randomUUID(), payload });
   }
+}
+
+function signature(values: string[]): string {
+  return values.join('|');
 }

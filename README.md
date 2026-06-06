@@ -29,6 +29,7 @@ CLIENT_MANUAL_ENABLED=true
 CLIENT_FAST_HEARTBEAT_MS=5000
 CLIENT_FULL_HEARTBEAT_MS=15000
 CLIENT_DATA_DIR=/www/projects/local-ai-classifier-client/var
+CLIENT_STATUS_PORT=0
 ```
 
 `host_id` создаётся один раз и хранится в `CLIENT_DATA_DIR/host_id`.
@@ -44,6 +45,12 @@ npm start -- status
 ```
 
 Состояние хранится в `CLIENT_DATA_DIR/control.json` и отражается в heartbeat как `manual_paused`.
+
+Если задан `CLIENT_STATUS_PORT`, client поднимает локальный status endpoint только на `127.0.0.1`:
+
+```bash
+curl http://127.0.0.1:$CLIENT_STATUS_PORT/status
+```
 
 ## Примечания по электричеству
 

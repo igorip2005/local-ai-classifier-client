@@ -16,6 +16,9 @@ Timestamp: 2026-06-07 00:28:25 +07
 - Added `chat_completion` task execution through Ollama `/api/chat`.
 - Added owner CLI controls: `pause`, `resume`, `status`.
 - Heartbeat now reads `CLIENT_DATA_DIR/control.json` and reports `manual_paused` dynamically.
+- Added local status endpoint on `127.0.0.1:$CLIENT_STATUS_PORT/status`.
+- Added model pull flow controlled by `CLIENT_ALLOW_MODEL_PULL`.
+- Added periodic capabilities refresh and `capabilities_update` when Ollama model list changes.
 
 ## Tests run
 
@@ -27,6 +30,6 @@ npm test
 Results:
 
 - `npm run build` passed.
-- `npm test` passed: 6 test files, 10 tests.
+- `npm test` passed: 7 test files, 13 tests.
 
 Client was also exercised by router `npm run test:e2e`, which starts the real client process against fake Ollama and the real router process, including classify, chat, import, batch and export.

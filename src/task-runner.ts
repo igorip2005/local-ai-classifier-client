@@ -4,6 +4,7 @@ import type { TaskResultPayload, TaskStartPayload } from './protocol.js';
 import { writeLocalTaskLog } from './local-log.js';
 
 export async function runTask(config: ClientConfig, task: TaskStartPayload): Promise<TaskResultPayload> {
+  await ensureTaskModel(config, task.model, task.timeout_ms);
   if (task.kind === 'chat_completion') return await runChatCompletion(config, task);
   if (task.kind !== 'classify_message' && task.kind !== 'classify_batch_item') {
     throw new Error(`Unsupported task kind: ${task.kind}`);
@@ -33,6 +34,15 @@ export async function runTask(config: ClientConfig, task: TaskStartPayload): Pro
   };
   if (task.job_id) result.job_id = task.job_id;
   return result;
+}
+
+async function ensureTaskModel(config: ClientConfig, model: string, timeoutMs: number): Promise<void> {
+  const ollama = new OllamaClient(config.ollamaBaseUrl);
+  if (await ollama.hasModel(model)) return;
+  if (!config.allowModelPull) {
+    throw new Error(`Model is not installed locally and model pull is disabled: ${model}`);
+  }
+  await ollama.pullModel(model, timeoutMs);
 }
 
 async function runChatCompletion(config: ClientConfig, task: TaskStartPayload): Promise<TaskResultPayload> {

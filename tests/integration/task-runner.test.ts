@@ -13,8 +13,10 @@ afterEach(async () => {
 describe('runTask', () => {
   it('calls fake Ollama and normalizes classification JSON', async () => {
     server = http.createServer((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen2.5:0.5b' }] }));
+      if (req.url === '/api/ps') return res.end(JSON.stringify({ models: [] }));
       if (req.url === '/api/chat') {
-        res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify({
           message: { content: '{"label":"sales","confidence":0.88,"reason":"price question"}' },
           prompt_eval_count: 20,
@@ -43,8 +45,10 @@ describe('runTask', () => {
 
   it('runs chat completion tasks against fake Ollama', async () => {
     server = http.createServer((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen2.5:0.5b' }] }));
+      if (req.url === '/api/ps') return res.end(JSON.stringify({ models: [] }));
       if (req.url === '/api/chat') {
-        res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify({ message: { content: 'hello from model' }, prompt_eval_count: 4, eval_count: 5 }));
       }
     });
@@ -65,5 +69,40 @@ describe('runTask', () => {
 
     expect(result.output.content).toBe('hello from model');
     expect(result.metering.completion_tokens).toBe(5);
+  });
+
+  it('pulls missing model when model pull is enabled', async () => {
+    let pulled = false;
+    server = http.createServer((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/api/tags') {
+        return res.end(JSON.stringify({ models: pulled ? [{ name: 'missing:latest' }] : [] }));
+      }
+      if (req.url === '/api/ps') return res.end(JSON.stringify({ models: [] }));
+      if (req.url === '/api/pull') {
+        pulled = true;
+        req.resume();
+        return res.end(JSON.stringify({ status: 'success' }));
+      }
+      if (req.url === '/api/chat') {
+        return res.end(JSON.stringify({ message: { content: '{"label":"other","confidence":0.5,"reason":"ok"}' } }));
+      }
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+    const config = loadConfig({ OLLAMA_BASE_URL: `http://127.0.0.1:${address.port}`, CLIENT_ALLOW_MODEL_PULL: 'true' });
+
+    await runTask(config, {
+      task_id: 'pull-task-1',
+      kind: 'classify_message',
+      priority: 80,
+      model: 'missing:latest',
+      timeout_ms: 5000,
+      input: { text: 'hello', classes: ['other'] },
+      options: { temperature: 0, num_ctx: 1024, think: false, stream: false }
+    });
+
+    expect(pulled).toBe(true);
   });
 });

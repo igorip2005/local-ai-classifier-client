@@ -38,6 +38,13 @@ export type HeartbeatPayload = {
   resources: Record<string, unknown>;
 };
 
+export type CapabilitiesUpdatePayload = {
+  host_id: string;
+  client_version: string;
+  ollama: { base_url: string; version: string | null; ok: boolean };
+  capabilities: HostCapabilities;
+};
+
 export type TaskStartPayload = {
   task_id: string;
   job_id?: string;
