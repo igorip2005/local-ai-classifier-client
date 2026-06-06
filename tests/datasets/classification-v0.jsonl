@@ -10,3 +10,15 @@
 {"text":"Добрый день, получил ваше письмо","expected_label":"other"}
 {"text":"Спасибо, вернусь позже","expected_label":"other"}
 {"text":"Hello, noted","expected_label":"other"}
+{"text":"Нужен прайс на команду из 15 человек","expected_label":"sales"}
+{"text":"Хотим купить 30 лицензий","expected_label":"sales"}
+{"text":"Do you have an enterprise plan quote?","expected_label":"sales"}
+{"text":"После обновления появляется error 500","expected_label":"support"}
+{"text":"Приложение сломалось после обновления","expected_label":"support"}
+{"text":"Login issue after password reset","expected_label":"support"}
+{"text":"Вы выиграли бонус в crypto casino","expected_label":"spam"}
+{"text":"Быстрый заработок без вложений","expected_label":"spam"}
+{"text":"Click here for guaranteed income","expected_label":"spam"}
+{"text":"Ок, принято","expected_label":"other"}
+{"text":"Let me check and come back later","expected_label":"other"}
+{"text":"Thanks, I will review it tomorrow","expected_label":"other"}
