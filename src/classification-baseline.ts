@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { ClientConfig } from './config.js';
 import { classifyByKeywords } from './classification-rules.js';
 import { runTask } from './task-runner.js';
@@ -31,6 +32,12 @@ export type BaselineReport = {
     max: number | null;
   };
   cases: BaselineCase[];
+};
+
+export type BaselineReportArtifact = BaselineReport & {
+  generated_at: string;
+  min_accuracy: number;
+  passed: boolean;
 };
 
 export async function readClassificationDataset(datasetPath: string): Promise<DatasetItem[]> {
@@ -95,6 +102,24 @@ export async function evaluateOllamaBaseline(
   return summarizeReport('ollama', model, datasetPath, cases);
 }
 
+export async function saveBaselineReportArtifact(
+  report: BaselineReport,
+  options: { reportDir: string; minAccuracy: number; now?: Date }
+): Promise<{ path: string; artifact: BaselineReportArtifact }> {
+  const generatedAt = (options.now ?? new Date()).toISOString();
+  const artifact: BaselineReportArtifact = {
+    ...report,
+    generated_at: generatedAt,
+    min_accuracy: options.minAccuracy,
+    passed: report.accuracy >= options.minAccuracy && report.contract_valid === report.total
+  };
+  await mkdir(options.reportDir, { recursive: true });
+  const fileName = `${fileTimestamp(generatedAt)}_${report.mode}_${safeFilePart(report.model ?? 'keyword')}.json`;
+  const outputPath = path.join(options.reportDir, fileName);
+  await writeFile(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
+  return { path: outputPath, artifact };
+}
+
 function summarizeReport(
   mode: BaselineReport['mode'],
   model: string | null,
@@ -118,4 +143,12 @@ function summarizeReport(
     },
     cases
   };
+}
+
+function fileTimestamp(value: string): string {
+  return value.replace(/[:.]/g, '-');
+}
+
+function safeFilePart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, '_');
 }

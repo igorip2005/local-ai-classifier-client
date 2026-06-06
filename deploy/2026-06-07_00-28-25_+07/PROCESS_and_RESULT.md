@@ -39,6 +39,11 @@ Timestamp: 2026-06-07 00:28:25 +07
   - `deploy_result` reporting over WebSocket.
 - Client now reports `CLIENT_BUILD_ID` in register/capabilities payloads.
 - Added unit and WebSocket integration tests for fake deploy command execution and deploy result reporting.
+- Added historical classification baseline artifacts from the quality-hardening gap in router `doc/gaps.md`:
+  - `npm run classification:baseline` writes JSON reports to `var/classification-baseline` by default;
+  - `CLASSIFICATION_REPORT_DIR` can redirect report artifacts;
+  - `CLASSIFICATION_WRITE_REPORT=0` disables report writing only when explicitly needed;
+  - saved report includes `generated_at`, `min_accuracy` and `passed` fields alongside the full case list.
 
 ## Tests run
 
@@ -61,3 +66,11 @@ Results:
 - `RUN_LOCAL_OLLAMA=1 npm run test:local-ollama` passed with local Ollama `qwen2.5:0.5b`.
 
 Client was also exercised by router `npm run test:e2e`, which starts the real client process against fake Ollama and the real router process, including classify, chat, import, batch and export.
+
+Additional verification at 2026-06-07 01:43 +07:
+
+- `npm run build` passed.
+- `npm test` passed: 9 test files and 20 tests, plus 1 skipped local Ollama test file.
+- `CLASSIFICATION_REPORT_DIR=var/classification-baseline-smoke npm run classification:baseline` passed and wrote `var/classification-baseline-smoke/2026-06-06T18-42-50-954Z_keyword_keyword.json`.
+- `RUN_LOCAL_OLLAMA=1 CLASSIFICATION_MIN_ACCURACY=0.9 CLASSIFICATION_REPORT_DIR=var/classification-baseline-smoke npm run classification:baseline` passed: 12/12 correct, contract_valid 12/12, avg latency 1650ms, max latency 2783ms; it wrote `var/classification-baseline-smoke/2026-06-06T18-43-17-964Z_ollama_qwen2.5_0.5b.json`.
+- `RUN_LOCAL_OLLAMA=1 npm run test:local-ollama` passed with local Ollama `qwen2.5:0.5b`.

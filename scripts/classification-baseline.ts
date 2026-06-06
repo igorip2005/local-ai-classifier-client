@@ -2,7 +2,8 @@ import { loadConfig } from '../src/config.js';
 import {
   evaluateKeywordBaseline,
   evaluateOllamaBaseline,
-  readClassificationDataset
+  readClassificationDataset,
+  saveBaselineReportArtifact
 } from '../src/classification-baseline.js';
 
 const datasetPath = process.env.CLASSIFICATION_DATASET_PATH ?? 'tests/datasets/classification-v0.jsonl';
@@ -13,6 +14,8 @@ const classes = (process.env.CLASSIFICATION_CLASSES ?? 'sales,support,spam,other
 const model = process.env.OLLAMA_MODEL ?? 'qwen2.5:0.5b';
 const mode = process.env.RUN_LOCAL_OLLAMA === '1' ? 'ollama' : 'keyword';
 const minAccuracy = Number(process.env.CLASSIFICATION_MIN_ACCURACY ?? '0.9');
+const reportDir = process.env.CLASSIFICATION_REPORT_DIR ?? 'var/classification-baseline';
+const writeReport = process.env.CLASSIFICATION_WRITE_REPORT !== '0';
 
 const dataset = await readClassificationDataset(datasetPath);
 const report = mode === 'ollama'
@@ -20,6 +23,12 @@ const report = mode === 'ollama'
   : evaluateKeywordBaseline(dataset, classes, datasetPath);
 
 console.log(JSON.stringify(report, null, 2));
+
+const failed = report.accuracy < minAccuracy || report.contract_valid !== report.total;
+if (writeReport) {
+  const artifact = await saveBaselineReportArtifact(report, { reportDir, minAccuracy });
+  process.stderr.write(`classification baseline report written: ${artifact.path}\n`);
+}
 
 if (report.accuracy < minAccuracy) {
   process.stderr.write(`classification baseline accuracy ${report.accuracy} is below ${minAccuracy}\n`);
@@ -29,3 +38,4 @@ if (report.contract_valid !== report.total) {
   process.stderr.write(`classification baseline contract failures: ${report.total - report.contract_valid}\n`);
   process.exit(1);
 }
+if (failed) process.exit(1);
