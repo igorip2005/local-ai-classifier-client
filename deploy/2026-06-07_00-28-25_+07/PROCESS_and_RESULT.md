@@ -13,6 +13,7 @@ Timestamp: 2026-06-07 00:28:25 +07
 - `close()` now disables reconnect and clears reconnect timer.
 - Heartbeat reports loaded models discovered at registration.
 - Added integration test that forces router socket close and verifies a second register.
+- Added `chat_completion` task execution through Ollama `/api/chat`.
 
 ## Tests run
 
@@ -24,6 +25,6 @@ npm test
 Results:
 
 - `npm run build` passed.
-- `npm test` passed: 5 test files, 7 tests.
+- `npm test` passed: 5 test files, 8 tests.
 
-Client was also exercised by router `npm run test:e2e`, which starts the real client process against fake Ollama and the real router process.
+Client was also exercised by router `npm run test:e2e`, which starts the real client process against fake Ollama and the real router process, including classify, chat, import, batch and export.

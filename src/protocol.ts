@@ -45,7 +45,12 @@ export type TaskStartPayload = {
   priority: number;
   model: string;
   timeout_ms: number;
-  input: { text: string; classes?: string[]; metadata?: Record<string, unknown> };
+  input: {
+    text?: string;
+    messages?: { role: string; content: string }[];
+    classes?: string[];
+    metadata?: Record<string, unknown>;
+  };
   options: { temperature: number; num_ctx: number; think: boolean; stream: boolean };
 };
 

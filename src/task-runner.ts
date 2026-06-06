@@ -4,6 +4,7 @@ import type { TaskResultPayload, TaskStartPayload } from './protocol.js';
 import { writeLocalTaskLog } from './local-log.js';
 
 export async function runTask(config: ClientConfig, task: TaskStartPayload): Promise<TaskResultPayload> {
+  if (task.kind === 'chat_completion') return await runChatCompletion(config, task);
   if (task.kind !== 'classify_message' && task.kind !== 'classify_batch_item') {
     throw new Error(`Unsupported task kind: ${task.kind}`);
   }
@@ -34,8 +35,34 @@ export async function runTask(config: ClientConfig, task: TaskStartPayload): Pro
   return result;
 }
 
+async function runChatCompletion(config: ClientConfig, task: TaskStartPayload): Promise<TaskResultPayload> {
+  const started = Date.now();
+  const ollama = new OllamaClient(config.ollamaBaseUrl);
+  const raw = await ollama.chat({
+    model: task.model,
+    stream: false,
+    think: false,
+    options: { temperature: task.options.temperature, num_ctx: task.options.num_ctx ?? 2048 },
+    messages: task.input.messages ?? []
+  }, task.timeout_ms);
+  const durationMs = Date.now() - started;
+  const content = typeof raw.message === 'object' && raw.message
+    ? String((raw.message as { content?: unknown }).content ?? '')
+    : String(raw.response ?? '');
+  const result: TaskResultPayload = {
+    task_id: task.task_id,
+    status: 'succeeded',
+    output: { content },
+    metering: extractMetering(raw, durationMs),
+    raw_model_response: raw
+  };
+  if (task.job_id) result.job_id = task.job_id;
+  return result;
+}
+
 function buildClassifyChatBody(task: TaskStartPayload): Record<string, unknown> {
   const classes = task.input.classes ?? ['sales', 'support', 'spam', 'other'];
+  const text = task.input.text ?? '';
   return {
     model: task.model,
     stream: false,
@@ -43,7 +70,7 @@ function buildClassifyChatBody(task: TaskStartPayload): Record<string, unknown> 
     options: { temperature: 0, num_ctx: task.options.num_ctx ?? 1024 },
     messages: [
       { role: 'system', content: 'Return only compact valid JSON. No markdown. No extra text.' },
-      { role: 'user', content: buildPrompt(task.input.text, classes) }
+      { role: 'user', content: buildPrompt(text, classes) }
     ]
   };
 }
