@@ -315,3 +315,28 @@ Still external/not locally provable:
 - Client user service must still be installed and verified on each target client host.
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
+
+Additional safe deploy failure reporting hardening at 2026-06-07 04:28 +07:
+
+- Rechecked trusted deploy client behavior against router `doc/IMPLEMENTATION_DETAILS.md` sections 20, 23, 24 and 27.
+- Found that deploy command failures returned the raw child-process error message to the router.
+- Risk: a target-host deploy script could accidentally print a secret or signed artifact URL to stderr, and the client would include that text in `deploy_result.error.message`.
+- Hardened deploy failure reporting:
+  - known local/config/artifact failures return stable safe error codes and messages;
+  - deploy command failures return `deploy_command_failed` without stdout/stderr content;
+  - command timeouts return `deploy_command_timeout`;
+  - unexpected local failures return generic `deploy_failed`.
+- Added unit coverage proving deploy command stderr is not returned in the failure result.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted deploy unit test passed: 1 test file and 3 tests.
+- Client `npm test` passed: 16 passed test files and 39 passed tests, plus 1 skipped local Ollama test file.
+- Router `npm run test:e2e` passed with this client build: classify, chat, import, batch, export and deploy with fake Ollama.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.

@@ -64,6 +64,35 @@ describe('runDeployUpdate', () => {
     expect(result.error?.message).toBe('Artifact checksum mismatch');
     await rm(dir, { recursive: true, force: true });
   });
+
+  it('does not return deploy command stderr in failure results', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-deploy-secret-'));
+    const command = path.join(dir, 'deploy-command.sh');
+    await writeFile(command, '#!/bin/sh\necho "raw-deploy-secret-from-stderr" >&2\nexit 2\n');
+    await chmod(command, 0o700);
+    const artifact = Buffer.from('client artifact');
+    const artifactUrl = await serveArtifact(artifact);
+    const config = loadConfig({
+      CLIENT_DATA_DIR: dir,
+      CLIENT_DEPLOY_ENABLED: 'true',
+      CLIENT_DEPLOY_COMMAND: command
+    });
+
+    const result = await runDeployUpdate(config, 'host-1', '0.1.0', {
+      deploy_id: 'deploy-secret',
+      target_version: '0.1.1',
+      artifact_url: artifactUrl,
+      artifact_sha256: createHash('sha256').update(artifact).digest('hex')
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toEqual({
+      code: 'deploy_command_failed',
+      message: 'Deploy command failed'
+    });
+    expect(JSON.stringify(result)).not.toContain('raw-deploy-secret-from-stderr');
+    await rm(dir, { recursive: true, force: true });
+  });
 });
 
 async function serveArtifact(body: Buffer): Promise<string> {
