@@ -22,3 +22,19 @@
 {"text":"Ок, принято","expected_label":"other"}
 {"text":"Let me check and come back later","expected_label":"other"}
 {"text":"Thanks, I will review it tomorrow","expected_label":"other"}
+{"text":"Помогите выбрать тариф для отдела продаж","expected_label":"sales"}
+{"text":"Нужна стоимость годовой подписки","expected_label":"sales"}
+{"text":"Can I buy 50 licenses for the support team?","expected_label":"sales"}
+{"text":"Please send an annual plan quote for finance","expected_label":"sales"}
+{"text":"Платеж не прошел после ввода карты","expected_label":"support"}
+{"text":"Оплата зависает на последнем шаге","expected_label":"support"}
+{"text":"Payment failed after the invoice was paid","expected_label":"support"}
+{"text":"The app crashes on checkout","expected_label":"support"}
+{"text":"Вы выиграли бонус, заберите бесплатную рекламу","expected_label":"spam"}
+{"text":"Limited time offer: free traffic and guaranteed income","expected_label":"spam"}
+{"text":"Crypto bonus без вложений, заработайте быстро","expected_label":"spam"}
+{"text":"Скидка 90% только сегодня, переходите по ссылке","expected_label":"spam"}
+{"text":"Посмотрю документ и отвечу завтра","expected_label":"other"}
+{"text":"Созвон завтра в 11 подтверждаю","expected_label":"other"}
+{"text":"I will review the document before our meeting tomorrow","expected_label":"other"}
+{"text":"Thanks, agenda received","expected_label":"other"}

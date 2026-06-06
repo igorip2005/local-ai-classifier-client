@@ -19,7 +19,10 @@ const RULES = [
       /\bbuy\b/i,
       /\bpricing\b/i,
       /\bquote\b/i,
-      /\benterprise\s+plan\b/i
+      /\benterprise\s+plan\b/i,
+      /\bsubscription\b/i,
+      /\blicen[cs]e/i,
+      /\bannual\s+plan\b/i
     ]
   },
   {
@@ -30,21 +33,32 @@ const RULES = [
       /не\s+могу\s+войти/i,
       /сломал[оаи]?сь/i,
       /помогите/i,
+      /не\s+проходит\s+оплат/i,
+      /плат[её]ж\s+не\s+прош[её]л/i,
+      /завис[а-я]*\s+при\s+оплат/i,
+      /оплат[а-я]*\s+завис/i,
       /\berror\b/i,
       /\bissue\b/i,
-      /\bcan'?t\s+log\s*in\b/i
+      /\bcan'?t\s+log\s*in\b/i,
+      /\bpayment\s+failed\b/i,
+      /\bapp\s+crashes\b/i,
+      /\bcheckout\s+crash/i
     ]
   },
   {
     label: 'spam',
     patterns: [
       /скидк[а-я]*\s+\d+%/i,
+      /вы\s+выиграли/i,
+      /выиграли\s+бонус/i,
       /заработ[а-я]+\s+быстро/i,
       /быстр[а-я]+\s+заработ/i,
       /бесплатн[а-я]+\s+реклам/i,
       /\bcasino\b/i,
       /\bcrypto\b/i,
-      /\bguaranteed\s+income\b/i
+      /\bguaranteed\s+income\b/i,
+      /\blimited\s+time\s+offer\b/i,
+      /\bfree\s+traffic\b/i
     ]
   },
   {
@@ -56,10 +70,14 @@ const RULES = [
       /принято/i,
       /спасибо/i,
       /вернусь\s+позже/i,
+      /созвон\s+завтра/i,
+      /посмотрю\s+документ/i,
       /\bhello\b/i,
       /\bnoted\b/i,
       /\bthanks?\b/i,
-      /\bcome\s+back\s+later\b/i
+      /\bcome\s+back\s+later\b/i,
+      /\breview\s+the\s+document\b/i,
+      /\bmeeting\s+tomorrow\b/i
     ]
   }
 ];

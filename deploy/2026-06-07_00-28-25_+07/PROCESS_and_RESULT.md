@@ -153,3 +153,18 @@ Additional classification repair work at 2026-06-07 03:00 +07:
 - Client targeted task-runner integration passed: 3 passed test files, 12 tests, plus 1 skipped local Ollama test file.
 - Client `npm test` passed: 13 test files and 31 tests, plus 1 skipped local Ollama test file.
 - Router `npm run test:e2e` passed with the updated client build.
+
+Additional classification dataset hardening at 2026-06-07 03:03 +07:
+
+- Expanded `tests/datasets/classification-v0.jsonl` from 24 to 40 examples.
+- Added confusion-style sales/support/spam/other cases around subscriptions, licenses, checkout/payment failures, promo spam and neutral follow-ups.
+- Strengthened deterministic keyword guardrails for:
+  - annual subscriptions and licenses;
+  - payment failed/stuck checkout;
+  - prize/limited-offer/free-traffic spam;
+  - document review and meeting confirmation neutral messages.
+- The first baseline run found one issue: `Оплата зависает на последнем шаге` was incorrectly classified as `other`; added a support rule and reran.
+- `npm run classification:baseline` passed: 40/40 correct, contract_valid 40/40.
+- `npm test` passed: 13 test files and 31 tests, plus 1 skipped local Ollama test file.
+- `npm run build` passed.
+- Router `npm run test:e2e` passed with this client build.
