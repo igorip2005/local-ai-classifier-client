@@ -42,6 +42,18 @@ const RULES = [
       /\bcrypto\b/i,
       /\bguaranteed\s+income\b/i
     ]
+  },
+  {
+    label: 'other',
+    patterns: [
+      /добрый\s+день/i,
+      /получил[аи]?\s+ваше\s+письмо/i,
+      /спасибо/i,
+      /вернусь\s+позже/i,
+      /\bhello\b/i,
+      /\bnoted\b/i,
+      /\bthanks?\b/i
+    ]
   }
 ];
 
@@ -61,7 +73,9 @@ export function applyClassificationGuardrails(
   classes: string[]
 ): Classification {
   const guardrail = classifyByKeywords(text, classes);
-  if (!guardrail || guardrail.label === 'other') return modelOutput;
+  if (!guardrail) return modelOutput;
+  if (guardrail.label === 'other' && guardrail.confidence >= 0.75) return guardrail;
+  if (guardrail.label === 'other') return modelOutput;
   if (modelOutput.label === guardrail.label && modelOutput.confidence >= 0.5) return modelOutput;
   return guardrail;
 }

@@ -160,6 +160,7 @@ export class RouterConnection extends EventEmitter {
       this.sendTaskError(task, 'task_failed', error instanceof Error ? error.message : 'Task failed');
     } finally {
       this.activeTasks -= 1;
+      void this.sendHeartbeat();
     }
   }
 

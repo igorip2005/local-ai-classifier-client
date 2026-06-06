@@ -25,6 +25,10 @@ Timestamp: 2026-06-07 00:28:25 +07
 - Added reusable classification baseline report logic and `npm run classification:baseline`.
 - Added opt-in `tests/integration/local-ollama.test.ts`; it is skipped unless `RUN_LOCAL_OLLAMA=1`.
 - Fixed the spam keyword rule for Russian inflections such as `скидкой 90%`.
+- Real `qwen2.5:0.5b` baseline initially exposed neutral `other` confusion cases.
+- Added neutral `other` keyword guardrails for simple greetings, acknowledgements and follow-up deferrals.
+- Client sends an immediate idle heartbeat after task completion to avoid stale busy state on the router.
+- Added integration coverage for heartbeat-after-task behavior.
 
 ## Tests run
 
@@ -33,13 +37,17 @@ npm run build
 npm test
 npm run classification:baseline
 npm run test:local-ollama
+RUN_LOCAL_OLLAMA=1 CLASSIFICATION_MIN_ACCURACY=0.9 npm run classification:baseline
+RUN_LOCAL_OLLAMA=1 npm run test:local-ollama
 ```
 
 Results:
 
 - `npm run build` passed.
-- `npm test` passed: 8 test files and 15 tests, plus 1 skipped local Ollama test file.
+- `npm test` passed: 8 test files and 16 tests, plus 1 skipped local Ollama test file.
 - `npm run classification:baseline` passed: 12/12 correct, contract_valid 12/12.
 - `npm run test:local-ollama` passed as skipped without `RUN_LOCAL_OLLAMA=1`.
+- `RUN_LOCAL_OLLAMA=1 CLASSIFICATION_MIN_ACCURACY=0.9 npm run classification:baseline` passed: 12/12 correct, contract_valid 12/12, avg latency about 1.5s.
+- `RUN_LOCAL_OLLAMA=1 npm run test:local-ollama` passed with local Ollama `qwen2.5:0.5b`.
 
 Client was also exercised by router `npm run test:e2e`, which starts the real client process against fake Ollama and the real router process, including classify, chat, import, batch and export.
