@@ -214,3 +214,28 @@ Still external/not locally provable:
 - Client user service must still be installed and verified on each target client host.
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
+
+Additional audit and logger redaction hardening at 2026-06-07 03:39 +07:
+
+- Rechecked client implementation against router `doc/IMPLEMENTATION_DETAILS.md` testing and privacy requirements.
+- Refactored client logger configuration into testable `loggerOptions`/`createLogger`.
+- Strengthened structured log redaction for root-level and request-header secrets:
+  - `authorization`;
+  - `x-api-key`;
+  - `setup_token`;
+  - `api_key`;
+  - generic `token`.
+- Added a focused pino JSON output test proving raw setup/API/authorization secrets are removed from structured logs.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted logger redaction unit test passed.
+- Client `npm test` passed: 16 passed test files and 35 passed tests, plus 1 skipped local Ollama test file.
+- Router `npm run test:e2e` passed with this client build: classify, chat, import, batch, export and deploy with fake Ollama.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.
