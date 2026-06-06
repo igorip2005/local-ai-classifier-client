@@ -19,6 +19,10 @@ Timestamp: 2026-06-07 00:28:25 +07
 - Added local status endpoint on `127.0.0.1:$CLIENT_STATUS_PORT/status`.
 - Added model pull flow controlled by `CLIENT_ALLOW_MODEL_PULL`.
 - Added periodic capabilities refresh and `capabilities_update` when Ollama model list changes.
+- Added fixed classification dataset `tests/datasets/classification-v0.jsonl`.
+- Added keyword guardrails for obvious sales/support/spam classifications before accepting weak model fallback.
+- Added fast classification baseline test over the fixed dataset.
+- Confirmed `npm run test:local-ollama` is not implemented yet: the script points to a missing `tests/integration/local-ollama.test.ts`.
 
 ## Tests run
 
@@ -30,6 +34,7 @@ npm test
 Results:
 
 - `npm run build` passed.
-- `npm test` passed: 7 test files, 13 tests.
+- `npm test` passed: 8 test files, 14 tests.
+- `npm run test:local-ollama` failed because no test file exists yet.
 
 Client was also exercised by router `npm run test:e2e`, which starts the real client process against fake Ollama and the real router process, including classify, chat, import, batch and export.

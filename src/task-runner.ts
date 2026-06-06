@@ -2,6 +2,7 @@ import type { ClientConfig } from './config.js';
 import { OllamaClient } from './ollama.js';
 import type { TaskResultPayload, TaskStartPayload } from './protocol.js';
 import { writeLocalTaskLog } from './local-log.js';
+import { applyClassificationGuardrails, type Classification } from './classification-rules.js';
 
 export async function runTask(config: ClientConfig, task: TaskStartPayload): Promise<TaskResultPayload> {
   await ensureTaskModel(config, task.model, task.timeout_ms);
@@ -14,7 +15,12 @@ export async function runTask(config: ClientConfig, task: TaskStartPayload): Pro
   const ollama = new OllamaClient(config.ollamaBaseUrl);
   const body = buildClassifyChatBody(task);
   const raw = await ollama.chat(body, task.timeout_ms);
-  const output = normalizeModelResponse(raw, task.input.classes ?? ['sales', 'support', 'spam', 'other']);
+  const classes = task.input.classes ?? ['sales', 'support', 'spam', 'other'];
+  const output = applyClassificationGuardrails(
+    normalizeModelResponse(raw, classes),
+    task.input.text ?? '',
+    classes
+  );
   const durationMs = Date.now() - started;
 
   await writeLocalTaskLog(config, {
@@ -96,7 +102,7 @@ function buildPrompt(text: string, classes: string[]): string {
   ].join('\n');
 }
 
-function normalizeModelResponse(raw: Record<string, unknown>, classes: string[]): Record<string, unknown> {
+function normalizeModelResponse(raw: Record<string, unknown>, classes: string[]): Classification {
   const content = typeof raw.message === 'object' && raw.message
     ? (raw.message as { content?: unknown }).content
     : raw.response;

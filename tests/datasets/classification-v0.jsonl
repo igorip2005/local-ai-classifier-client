@@ -1,0 +1,12 @@
+{"text":"Хочу узнать цену подключения","expected_label":"sales"}
+{"text":"Сколько стоит ваш тариф для бизнеса?","expected_label":"sales"}
+{"text":"Can you send me pricing for 20 users?","expected_label":"sales"}
+{"text":"Не работает вход в аккаунт","expected_label":"support"}
+{"text":"Помогите, ошибка при оплате","expected_label":"support"}
+{"text":"I can't log in to my account","expected_label":"support"}
+{"text":"Купите рекламу со скидкой 90% прямо сейчас","expected_label":"spam"}
+{"text":"Guaranteed income with crypto casino","expected_label":"spam"}
+{"text":"Бесплатная реклама и быстрый заработок","expected_label":"spam"}
+{"text":"Добрый день, получил ваше письмо","expected_label":"other"}
+{"text":"Спасибо, вернусь позже","expected_label":"other"}
+{"text":"Hello, noted","expected_label":"other"}
