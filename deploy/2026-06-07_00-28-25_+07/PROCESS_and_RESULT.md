@@ -263,3 +263,30 @@ Still external/not locally provable:
 - Client user service must still be installed and verified on each target client host.
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
+
+Additional client router-command protocol validation hardening at 2026-06-07 04:13 +07:
+
+- Rechecked client WebSocket command handling against router `doc/IMPLEMENTATION_DETAILS.md` sections 12, 23, 24 and 27.
+- Found that inbound router WebSocket messages were parsed and trusted through TypeScript casts.
+- Added zod runtime validation for router-to-client command envelopes:
+  - `task_start`;
+  - `deploy_update`.
+- Invalid router command messages now emit `protocol_error` and do not start Ollama task execution or deploy command execution.
+- Added integration coverage proving:
+  - malformed JSON is rejected;
+  - unknown command types are rejected;
+  - incomplete `task_start` payloads are rejected without sending `task_error`;
+  - invalid `deploy_update` payloads are rejected without sending `deploy_result`.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted router-connection integration passed: 1 test file and 10 tests.
+- Client `npm test` passed: 16 passed test files and 38 passed tests, plus 1 skipped local Ollama test file.
+- Router `npm run test:e2e` passed with this client build: classify, chat, import, batch, export and deploy with fake Ollama.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.

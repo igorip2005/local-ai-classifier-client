@@ -5,7 +5,16 @@ import type { ClientConfig } from './config.js';
 import { buildRegisterPayload } from './capabilities.js';
 import { collectResources } from './metrics.js';
 import { evaluateAvailability, type Availability } from './availability.js';
-import type { DeployResultPayload, DeployUpdatePayload, Envelope, HeartbeatPayload, TaskErrorPayload, TaskResultPayload, TaskStartPayload } from './protocol.js';
+import {
+  parseInboundRouterEnvelope,
+  type DeployResultPayload,
+  type DeployUpdatePayload,
+  type Envelope,
+  type HeartbeatPayload,
+  type TaskErrorPayload,
+  type TaskResultPayload,
+  type TaskStartPayload
+} from './protocol.js';
 import { runTask } from './task-runner.js';
 import { readManualEnabled } from './control.js';
 import { runDeployUpdate } from './deploy.js';
@@ -152,7 +161,7 @@ export class RouterConnection extends EventEmitter {
 
   private handleMessage(raw: string): void {
     try {
-      const envelope = JSON.parse(raw) as Envelope;
+      const envelope = parseInboundRouterEnvelope(raw);
       if (envelope.type === 'task_start') {
         void this.handleTaskStart(envelope.payload as TaskStartPayload);
       }

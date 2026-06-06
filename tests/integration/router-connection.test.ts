@@ -78,6 +78,73 @@ describe('RouterConnection', () => {
     expect(registerCount).toBeGreaterThanOrEqual(2);
   });
 
+  it('rejects invalid router command envelopes before running task or deploy work', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-protocol-validation-'));
+    const received: string[] = [];
+    const protocolErrors: unknown[] = [];
+    server = http.createServer();
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (socket) => {
+      socket.on('message', (data) => {
+        const raw = data.toString();
+        received.push(raw);
+        const envelope = JSON.parse(raw) as { type: string };
+        if (envelope.type === 'register') {
+          socket.send('{not-json');
+          socket.send(JSON.stringify({ type: 'unknown_command', request_id: 'unknown-1', payload: {} }));
+          socket.send(JSON.stringify({
+            type: 'task_start',
+            request_id: 'invalid-task-1',
+            payload: {
+              task_id: 'task-invalid-1',
+              kind: 'classify_message',
+              priority: 80,
+              model: 'qwen2.5:0.5b',
+              timeout_ms: 5000,
+              options: { temperature: 0, num_ctx: 1024, think: false, stream: false }
+            }
+          }));
+          socket.send(JSON.stringify({
+            type: 'deploy_update',
+            request_id: 'invalid-deploy-1',
+            payload: {
+              deploy_id: 'deploy-invalid-1',
+              target_version: '0.1.1',
+              artifact_url: 'not-a-url',
+              artifact_sha256: 'bad'
+            }
+          }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+
+    const config = loadConfig({
+      ROUTER_URL: `ws://127.0.0.1:${address.port}`,
+      CLIENT_DATA_DIR: dir,
+      OLLAMA_BASE_URL: 'http://127.0.0.1:9',
+      CLIENT_FAST_HEARTBEAT_MS: '1000',
+      CLIENT_DEPLOY_ENABLED: 'true',
+      CLIENT_DEPLOY_COMMAND: process.execPath,
+      CLIENT_NAME: 'protocol-validation-client'
+    });
+    const connection = new RouterConnection(config, 'host-protocol-validation-id', '0.1.0');
+    connection.on('protocol_error', (error) => protocolErrors.push(error));
+    connection.connect();
+
+    await waitFor(() => protocolErrors.length >= 4, 1500);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    connection.close();
+    await rm(dir, { recursive: true, force: true });
+
+    expect(protocolErrors).toHaveLength(4);
+    const outboundTypes = received.map((raw) => JSON.parse(raw).type);
+    expect(outboundTypes).not.toContain('task_error');
+    expect(outboundTypes).not.toContain('deploy_result');
+  });
+
   it('reflects manual pause control state in heartbeat', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-paused-'));
     await setManualEnabled(dir, false);

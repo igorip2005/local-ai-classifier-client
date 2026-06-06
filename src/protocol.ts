@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 export type Envelope<TPayload = unknown> = {
   type: string;
   request_id: string;
@@ -93,3 +95,55 @@ export type DeployResultPayload = {
   client_version?: string;
   error?: { code: string; message: string };
 };
+
+const jsonObject = z.record(z.string(), z.unknown());
+
+const taskStartPayloadSchema = z.object({
+  task_id: z.string().min(1),
+  job_id: z.string().min(1).optional(),
+  kind: z.enum(['classify_message', 'classify_batch_item', 'chat_completion']),
+  priority: z.number().int(),
+  model: z.string().min(1),
+  timeout_ms: z.number().int().positive(),
+  input: z.object({
+    text: z.string().optional(),
+    messages: z.array(z.object({
+      role: z.string().min(1),
+      content: z.string().min(1)
+    })).optional(),
+    classes: z.array(z.string().min(1)).optional(),
+    metadata: jsonObject.optional()
+  }),
+  options: z.object({
+    temperature: z.number(),
+    num_ctx: z.number().int().positive(),
+    think: z.boolean(),
+    stream: z.boolean()
+  })
+});
+
+const deployUpdatePayloadSchema = z.object({
+  deploy_id: z.string().min(1),
+  target_version: z.string().min(1),
+  artifact_url: z.string().url(),
+  artifact_sha256: z.string().regex(/^[a-f0-9]{64}$/i)
+});
+
+export const inboundRouterEnvelopeSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('task_start'),
+    request_id: z.string().min(1),
+    payload: taskStartPayloadSchema
+  }),
+  z.object({
+    type: z.literal('deploy_update'),
+    request_id: z.string().min(1),
+    payload: deployUpdatePayloadSchema
+  })
+]);
+
+export type InboundRouterEnvelope = z.infer<typeof inboundRouterEnvelopeSchema>;
+
+export function parseInboundRouterEnvelope(raw: string): InboundRouterEnvelope {
+  return inboundRouterEnvelopeSchema.parse(JSON.parse(raw) as unknown);
+}
