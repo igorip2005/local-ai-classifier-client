@@ -168,3 +168,20 @@ Additional classification dataset hardening at 2026-06-07 03:03 +07:
 - `npm test` passed: 13 test files and 31 tests, plus 1 skipped local Ollama test file.
 - `npm run build` passed.
 - Router `npm run test:e2e` passed with this client build.
+
+Additional systemd install helper work at 2026-06-07 03:08 +07:
+
+- Added `npm run deploy:install-service`.
+- The install helper:
+  - reuses `npm run deploy:preflight` validation;
+  - defaults to dry-run mode and does not mutate user systemd state;
+  - lists exact install commands for `~/.config/systemd/user/local-ai-classifier.service`;
+  - executes only when `CLIENT_DEPLOY_INSTALL_CONFIRM=1`;
+  - reports `npm run deploy:service-status` as the next verification command.
+- Added README instructions for production-like systemd flow: preflight, dry-run install, confirmed install and service status.
+- Added unit coverage for dry-run safety and explicit execution command plans.
+- `npm run build` passed.
+- Targeted deploy unit tests passed: 11 test files and 21 tests.
+- Dry-run `npm run deploy:install-service` returned `warn` because local `.env` is missing, but the service artifact passed validation and no commands executed.
+- `npm test` passed: 14 test files and 33 tests, plus 1 skipped local Ollama test file.
+- Router `npm run test:e2e` passed with this client build.

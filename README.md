@@ -58,3 +58,16 @@ curl http://127.0.0.1:$CLIENT_STATUS_PORT/status
 - Локальное логирование запросов выключено режимом `CLIENT_LOCAL_LOG_MODE=none`.
 - GPU telemetry берётся из `nvidia-smi`, если он доступен.
 - Бизнес-логика взята из `/www/projects/local-ai-classifier-router/doc/IMPLEMENTATION_DETAILS.md`, разделы 5, 7, 15, 20, 21 и 24.
+
+## Systemd deploy
+
+Production-like установка client service на Linux test host выполняется явно и безопасно:
+
+```bash
+npm run deploy:preflight
+npm run deploy:install-service
+CLIENT_DEPLOY_INSTALL_CONFIRM=1 npm run deploy:install-service
+npm run deploy:service-status
+```
+
+Без `CLIENT_DEPLOY_INSTALL_CONFIRM=1` install command работает как dry-run и только показывает planned commands.
