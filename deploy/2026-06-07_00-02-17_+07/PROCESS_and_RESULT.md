@@ -10,6 +10,7 @@ Client repository commits:
 
 - `fa8944b feat: scaffold client agent`
 - `0cd8533 feat: run classify tasks against ollama`
+- `97845cd docs: record client e2e results`
 
 Implemented client capabilities:
 
