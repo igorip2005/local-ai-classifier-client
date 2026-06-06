@@ -9,6 +9,7 @@ import type { DeployResultPayload, DeployUpdatePayload, Envelope, HeartbeatPaylo
 import { runTask } from './task-runner.js';
 import { readManualEnabled } from './control.js';
 import { runDeployUpdate } from './deploy.js';
+import { OllamaClient } from './ollama.js';
 
 export class RouterConnection extends EventEmitter {
   private socket: WebSocket | null = null;
@@ -116,9 +117,16 @@ export class RouterConnection extends EventEmitter {
   }
 
   private async sendHeartbeat(): Promise<void> {
-    const resources = await collectResources();
-    const manualEnabled = await readManualEnabled(this.config.clientDataDir, this.config.manualEnabled);
+    const ollama = new OllamaClient(this.config.ollamaBaseUrl);
+    const [resources, manualEnabled, ollamaHealth] = await Promise.all([
+      collectResources(),
+      readManualEnabled(this.config.clientDataDir, this.config.manualEnabled),
+      ollama.health()
+    ]);
     const availability = evaluateAvailability(resources, manualEnabled);
+    const processes = typeof resources.processes === 'object' && resources.processes
+      ? resources.processes as Record<string, unknown>
+      : {};
     const payload: HeartbeatPayload = {
       host_id: this.hostId,
       ts: new Date().toISOString(),
@@ -126,7 +134,12 @@ export class RouterConnection extends EventEmitter {
       active_tasks: this.activeTasks,
       queue_depth: 0,
       models_loaded: this.loadedModels,
-      resources: { ...resources, availability }
+      resources: {
+        ...resources,
+        processes: { ...processes, ollama_running: ollamaHealth.ok },
+        ollama: ollamaHealth,
+        availability
+      }
     };
     this.send({ type: 'heartbeat', request_id: randomUUID(), payload });
   }

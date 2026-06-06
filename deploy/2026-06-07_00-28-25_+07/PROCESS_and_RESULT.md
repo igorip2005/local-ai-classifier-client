@@ -119,3 +119,26 @@ Additional audit at 2026-06-07 02:48 +07:
 - Found that the metrics collector has no focused unit coverage for the `nvidia-smi` parser/fallback path; current tests cover availability policy with synthetic resource objects instead.
 - Found that explicit Ollama-unavailable heartbeat behavior is not proven. The current heartbeat reports OS/GPU availability, while Ollama unavailability can still affect register/capabilities discovery rather than being surfaced as stable heartbeat state.
 - Found that fake Ollama invalid JSON handling is not directly covered in `tests/integration/task-runner.test.ts`; classification fallback exists in normalization code, but the invalid-output integration path should be locked down.
+
+Additional client hardening work at 2026-06-07 02:57 +07:
+
+- Added `.env.example` with safe placeholders and defaults matching `src/config.ts` and `README.md`.
+- Made Ollama model discovery resilient when `/api/tags` is unavailable, so a down Ollama instance does not break registration/capabilities code paths.
+- Heartbeat now includes explicit Ollama state:
+  - `resources.ollama`;
+  - `resources.processes.ollama_running`.
+- Added unit coverage for local logging privacy modes:
+  - `none` writes no task log;
+  - `metadata` omits request/output bodies;
+  - `full` writes full details only when explicitly configured.
+- Added unit coverage for metrics collection:
+  - parses `nvidia-smi` CSV output;
+  - falls back to an empty GPU list when NVIDIA telemetry is unavailable.
+- Added integration coverage proving unavailable Ollama is reported in heartbeat while registration still succeeds with an empty model list.
+- Added fake Ollama invalid JSON integration coverage; classification falls back to `other` with a valid result contract.
+- Client `npm run build` passed.
+- Client targeted checks passed:
+  - unit subset: 10 test files and 19 tests;
+  - integration subset: 3 passed test files and 12 tests, plus 1 skipped local Ollama test file.
+- Client `npm test` passed: 13 test files and 31 tests, plus 1 skipped local Ollama test file.
+- Client build passed again as part of router `npm run test:e2e`.

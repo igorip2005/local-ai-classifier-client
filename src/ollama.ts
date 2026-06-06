@@ -82,17 +82,21 @@ export class OllamaClient {
   }
 
   private async tags(): Promise<Omit<HostModel, 'loaded'>[]> {
-    const response = await fetch(`${this.baseUrl}/api/tags`);
-    if (!response.ok) return [];
-    const parsed = tagsSchema.parse(await response.json());
-    return parsed.models.map((model) => {
-      const output: Omit<HostModel, 'loaded'> = { name: model.name };
-      if (model.size !== undefined) output.size_bytes = model.size;
-      if (model.details?.family) output.family = model.details.family;
-      if (model.details?.parameter_size) output.parameter_size = model.details.parameter_size;
-      if (model.details?.quantization_level) output.quantization = model.details.quantization_level;
-      return output;
-    });
+    try {
+      const response = await fetch(`${this.baseUrl}/api/tags`);
+      if (!response.ok) return [];
+      const parsed = tagsSchema.parse(await response.json());
+      return parsed.models.map((model) => {
+        const output: Omit<HostModel, 'loaded'> = { name: model.name };
+        if (model.size !== undefined) output.size_bytes = model.size;
+        if (model.details?.family) output.family = model.details.family;
+        if (model.details?.parameter_size) output.parameter_size = model.details.parameter_size;
+        if (model.details?.quantization_level) output.quantization = model.details.quantization_level;
+        return output;
+      });
+    } catch {
+      return [];
+    }
   }
 
   private async loadedModelNames(): Promise<Set<string>> {

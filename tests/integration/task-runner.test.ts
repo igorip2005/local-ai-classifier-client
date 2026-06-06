@@ -43,6 +43,37 @@ describe('runTask', () => {
     expect(result.metering.prompt_tokens).toBe(20);
   });
 
+  it('falls back to other when fake Ollama returns invalid classification JSON', async () => {
+    server = http.createServer((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen2.5:0.5b' }] }));
+      if (req.url === '/api/ps') return res.end(JSON.stringify({ models: [] }));
+      if (req.url === '/api/chat') {
+        return res.end(JSON.stringify({ message: { content: 'not valid json' } }));
+      }
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+    const config = loadConfig({ OLLAMA_BASE_URL: `http://127.0.0.1:${address.port}` });
+
+    const result = await runTask(config, {
+      task_id: 'invalid-json-task-1',
+      kind: 'classify_message',
+      priority: 80,
+      model: 'qwen2.5:0.5b',
+      timeout_ms: 5000,
+      input: { text: 'unmatched message', classes: ['sales', 'support', 'spam', 'other'] },
+      options: { temperature: 0, num_ctx: 1024, think: false, stream: false }
+    });
+
+    expect(result.output).toMatchObject({
+      label: 'other',
+      confidence: 0,
+      reason: 'Model did not return valid JSON'
+    });
+  });
+
   it('runs chat completion tasks against fake Ollama', async () => {
     server = http.createServer((req, res) => {
       res.setHeader('content-type', 'application/json');

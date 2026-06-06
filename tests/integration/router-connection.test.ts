@@ -108,6 +108,38 @@ describe('RouterConnection', () => {
     expect(heartbeat.payload.resources.availability.can_accept_tasks).toBe(false);
   });
 
+  it('reports Ollama unavailable in heartbeat without breaking registration', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-ollama-down-'));
+    const received: string[] = [];
+    server = http.createServer();
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (socket) => socket.on('message', (data) => received.push(data.toString())));
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+
+    const config = loadConfig({
+      ROUTER_URL: `ws://127.0.0.1:${address.port}`,
+      CLIENT_DATA_DIR: dir,
+      OLLAMA_BASE_URL: 'http://127.0.0.1:9',
+      CLIENT_FAST_HEARTBEAT_MS: '25',
+      CLIENT_NAME: 'ollama-down-client'
+    });
+    const connection = new RouterConnection(config, 'host-ollama-down-id', '0.1.0');
+    connection.connect();
+
+    await waitFor(() => received.some((raw) => JSON.parse(raw).type === 'heartbeat'), 1500);
+    connection.close();
+    await rm(dir, { recursive: true, force: true });
+
+    const register = received.map((raw) => JSON.parse(raw)).find((item) => item.type === 'register');
+    expect(register.payload.ollama.ok).toBe(false);
+    expect(register.payload.capabilities.models).toEqual([]);
+    const heartbeat = received.map((raw) => JSON.parse(raw)).find((item) => item.type === 'heartbeat');
+    expect(heartbeat.payload.resources.ollama.ok).toBe(false);
+    expect(heartbeat.payload.resources.processes.ollama_running).toBe(false);
+  });
+
   it('sends capabilities_update when discovered models change', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-capabilities-'));
     let tagCallCount = 0;
