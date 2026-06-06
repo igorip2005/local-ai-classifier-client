@@ -235,6 +235,28 @@ Verification:
 - Client `npm test` passed: 18 test files and 52 tests passed, plus 1 skipped opt-in local Ollama test file.
 - Client `git diff --check` passed.
 
+Additional client production readiness report artifact work at 2026-06-07 06:57 +07:
+
+- Rechecked client production readiness as target-host evidence.
+- Found that `npm run production:readiness` returned live status, but did not persist a durable local report artifact.
+- Risk: target client host readiness evidence could be lost unless copied manually from terminal output.
+- Fixed in the client repo:
+  - added `src/deploy/report-service.ts`;
+  - added `npm run deploy:reports`;
+  - `npm run production:readiness` now writes a private `production-readiness` JSON artifact under `CLIENT_REPORT_DIR` or `var/reports`;
+  - output includes `report_path`;
+  - `CLIENT_REPORT_KIND=production-readiness CLIENT_REPORT_LIMIT=1 npm run deploy:reports` lists the latest host-readiness report;
+  - updated `RUNBOOK.md` and `README.md`.
+- Business logic: client host production readiness from router `doc/IMPLEMENTATION_DETAILS.md` sections 20, 23, 24 and 25 needs durable local evidence on each target host, not only terminal output.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted report/readiness/runbook tests passed: 3 test files and 6 tests.
+- Client `npm run production:readiness` with a temporary `CLIENT_REPORT_DIR` correctly returned `fail` and exit code `1` on this local server, wrote a private `production-readiness` report artifact and exposed it through `CLIENT_REPORT_KIND=production-readiness CLIENT_REPORT_LIMIT=1 npm run deploy:reports`.
+- Client `npm test` passed: 19 test files and 54 tests passed, plus 1 skipped opt-in local Ollama test file.
+- Client `git diff --check` passed.
+
 Additional client deploy/status output redaction hardening at 2026-06-07 06:36 +07:
 
 - Rechecked client production service tooling against router `doc/IMPLEMENTATION_DETAILS.md` sections 20, 23, 24, 25 and 27.

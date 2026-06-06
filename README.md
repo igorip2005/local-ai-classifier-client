@@ -76,7 +76,8 @@ npm run deploy:install-service
 CLIENT_DEPLOY_INSTALL_CONFIRM=1 npm run deploy:install-service
 npm run deploy:service-status
 npm run production:readiness
+CLIENT_REPORT_KIND=production-readiness CLIENT_REPORT_LIMIT=1 npm run deploy:reports
 ```
 
 Без `CLIENT_DEPLOY_INSTALL_CONFIRM=1` install command работает как dry-run и только показывает planned commands.
-`production:readiness` должен возвращать `pass` на каждом target host перед внешней acceptance-проверкой.
+`production:readiness` должен возвращать `pass` на каждом target host перед внешней acceptance-проверкой и сохраняет private report в `CLIENT_REPORT_DIR` или `var/reports`.

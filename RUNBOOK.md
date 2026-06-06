@@ -81,6 +81,7 @@ has been installed:
 
 ```bash
 npm run production:readiness
+CLIENT_REPORT_KIND=production-readiness CLIENT_REPORT_LIMIT=1 npm run deploy:reports
 ```
 
 Expected production signal:
@@ -91,7 +92,9 @@ Expected production signal:
 
 Any `fail` means this client host is not ready for production acceptance. Fix
 `deploy:preflight` or `deploy:service-status` before using it as a trusted
-deploy/GPU acceptance target.
+deploy/GPU acceptance target. The CLI writes a private `production-readiness`
+artifact into `CLIENT_REPORT_DIR` or `var/reports` so the host-readiness result
+can be audited later.
 
 ## Owner Controls
 
