@@ -1,5 +1,6 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
+import { redactDeployText } from './redaction.js';
 
 const execFileAsync = promisify(execFileCallback);
 const serviceFile = 'local-ai-classifier.service';
@@ -87,7 +88,7 @@ function normalizeState(value: string | undefined): string | null {
 
 function describeCommand(result: { stdout: string; stderr: string; error: string | null }): string {
   const details = [result.stdout.trim(), result.stderr.trim(), result.error ?? ''].filter(Boolean);
-  return details.join(' | ') || 'no output';
+  return redactDeployText(details.join(' | ') || 'no output');
 }
 
 function aggregateStatus(checks: ClientServiceStatusCheck[]): ClientServiceStatusReport['status'] {

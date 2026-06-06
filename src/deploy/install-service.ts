@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { runClientDeployPreflight, type ClientDeployPreflightReport } from './preflight-service.js';
+import { redactDeployNullable, redactDeployText } from './redaction.js';
 
 const execFileAsync = promisify(execFileCallback);
 const serviceFile = 'local-ai-classifier.service';
@@ -93,8 +94,8 @@ async function runCommand(execFile: ExecFile, command: InstallCommand): Promise<
     return {
       command: command.display,
       status: 'succeeded',
-      stdout: result.stdout.toString(),
-      stderr: result.stderr.toString(),
+      stdout: redactDeployText(result.stdout.toString()),
+      stderr: redactDeployText(result.stderr.toString()),
       error: null
     };
   } catch (error) {
@@ -102,9 +103,9 @@ async function runCommand(execFile: ExecFile, command: InstallCommand): Promise<
     return {
       command: command.display,
       status: 'failed',
-      stdout: commandError.stdout?.toString() ?? null,
-      stderr: commandError.stderr?.toString() ?? null,
-      error: commandError.message ?? 'command failed'
+      stdout: redactDeployNullable(commandError.stdout?.toString() ?? null),
+      stderr: redactDeployNullable(commandError.stderr?.toString() ?? null),
+      error: redactDeployText(commandError.message ?? 'command failed')
     };
   }
 }

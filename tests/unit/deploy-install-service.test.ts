@@ -58,6 +58,38 @@ describe('client service installer', () => {
       await rm(fixture.root, { recursive: true, force: true });
     }
   });
+
+  it('redacts command stdout, stderr and errors from execution reports', async () => {
+    const fixture = await createFixture();
+    try {
+      const report = await runClientServiceInstall({
+        repoRoot: fixture.root,
+        deployDir: fixture.deployDir,
+        userSystemdDir: fixture.userSystemdDir,
+        execute: true,
+        execFile: async (file, args) => {
+          if (file === 'systemctl' && args.includes('enable')) {
+            throw Object.assign(new Error('failed with api_key=raw-error-key'), {
+              stdout: 'setup_token=raw-stdout-token',
+              stderr: 'GET https://artifact.example/client.tgz?token=raw-stderr-token'
+            });
+          }
+          return { stdout: 'ok', stderr: '' };
+        }
+      });
+
+      const serialized = JSON.stringify(report);
+      expect(report.status).toBe('fail');
+      expect(serialized).not.toContain('raw-error-key');
+      expect(serialized).not.toContain('raw-stdout-token');
+      expect(serialized).not.toContain('raw-stderr-token');
+      expect(serialized).toContain('api_key=[redacted]');
+      expect(serialized).toContain('setup_token=[redacted]');
+      expect(serialized).toContain('https://artifact.example/client.tgz?[redacted]');
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
 });
 
 async function createFixture() {

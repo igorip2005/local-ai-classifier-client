@@ -215,6 +215,25 @@ Still external/not locally provable:
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
 
+Additional client deploy/status output redaction hardening at 2026-06-07 06:36 +07:
+
+- Rechecked client production service tooling against router `doc/IMPLEMENTATION_DETAILS.md` sections 20, 23, 24, 25 and 27.
+- Found that `deploy:service-status` and confirmed `deploy:install-service` reports included raw child-process stdout/stderr/error text.
+- Risk: if `systemctl` or a local command printed token-like text or a signed artifact URL, the JSON report could leak it into terminal output or tickets.
+- Fixed in the client repo:
+  - added deploy output redaction helper;
+  - `deploy:service-status` redacts systemctl stdout/stderr/error before composing failed check messages;
+  - `deploy:install-service` redacts command stdout, stderr and error fields in execution steps;
+  - redaction covers bearer tokens, API/admin/setup tokens, generic token/signature fields and signed URL query strings.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted deploy status/install tests passed: 2 passed test files and 6 tests.
+- Client `npm test` passed: 17 passed test files and 49 passed tests, plus 1 skipped opt-in local Ollama test file.
+- Router `npm run test:e2e` passed with this client build: classify, chat, JSONL/CSV import, batch, export and deploy with fake Ollama.
+- `git diff --check` passed in both repos.
+
 Additional task failure privacy hardening at 2026-06-07 05:51 +07:
 
 - Rechecked client task error reporting against router `doc/IMPLEMENTATION_DETAILS.md` sections 20 and 22.
