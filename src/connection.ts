@@ -7,6 +7,7 @@ import { collectResources } from './metrics.js';
 import { evaluateAvailability } from './availability.js';
 import type { Envelope, HeartbeatPayload, TaskErrorPayload, TaskResultPayload, TaskStartPayload } from './protocol.js';
 import { runTask } from './task-runner.js';
+import { readManualEnabled } from './control.js';
 
 export class RouterConnection extends EventEmitter {
   private socket: WebSocket | null = null;
@@ -85,7 +86,8 @@ export class RouterConnection extends EventEmitter {
 
   private async sendHeartbeat(): Promise<void> {
     const resources = await collectResources();
-    const availability = evaluateAvailability(resources, this.config.manualEnabled);
+    const manualEnabled = await readManualEnabled(this.config.clientDataDir, this.config.manualEnabled);
+    const availability = evaluateAvailability(resources, manualEnabled);
     const payload: HeartbeatPayload = {
       host_id: this.hostId,
       ts: new Date().toISOString(),

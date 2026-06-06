@@ -4,6 +4,13 @@ import { config } from './config.js';
 import { getOrCreateHostId } from './identity.js';
 import { RouterConnection } from './connection.js';
 import { logger } from './logger.js';
+import { readControlStatus, setManualEnabled } from './control.js';
+
+const command = process.argv[2];
+if (command === 'pause' || command === 'resume' || command === 'status') {
+  await runControlCommand(command);
+  process.exit(0);
+}
 
 const version = await readVersion();
 const hostId = await getOrCreateHostId(config.clientDataDir);
@@ -25,4 +32,19 @@ function shutdown(signal: string): void {
 async function readVersion(): Promise<string> {
   const packageJson = JSON.parse(await readFile(path.join(process.cwd(), 'package.json'), 'utf8')) as { version: string };
   return packageJson.version;
+}
+
+async function runControlCommand(commandName: string): Promise<void> {
+  if (commandName === 'pause') {
+    const state = await setManualEnabled(config.clientDataDir, false);
+    console.log(JSON.stringify({ status: 'paused', ...state }));
+    return;
+  }
+  if (commandName === 'resume') {
+    const state = await setManualEnabled(config.clientDataDir, true);
+    console.log(JSON.stringify({ status: 'resumed', ...state }));
+    return;
+  }
+  const state = await readControlStatus(config.clientDataDir, config.manualEnabled);
+  console.log(JSON.stringify({ status: state.manual_enabled ? 'enabled' : 'paused', ...state }));
 }

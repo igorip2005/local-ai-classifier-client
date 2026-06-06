@@ -6,6 +6,7 @@ import { WebSocketServer } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import { RouterConnection } from '../../src/connection.js';
+import { setManualEnabled } from '../../src/control.js';
 
 let server: http.Server | null = null;
 
@@ -74,6 +75,36 @@ describe('RouterConnection', () => {
     await rm(dir, { recursive: true, force: true });
 
     expect(registerCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it('reflects manual pause control state in heartbeat', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-paused-'));
+    await setManualEnabled(dir, false);
+    const received: string[] = [];
+    server = http.createServer();
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (socket) => socket.on('message', (data) => received.push(data.toString())));
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+
+    const config = loadConfig({
+      ROUTER_URL: `ws://127.0.0.1:${address.port}`,
+      CLIENT_DATA_DIR: dir,
+      CLIENT_FAST_HEARTBEAT_MS: '25',
+      CLIENT_MANUAL_ENABLED: 'true',
+      CLIENT_NAME: 'paused-client'
+    });
+    const connection = new RouterConnection(config, 'host-paused-id', '0.1.0');
+    connection.connect();
+
+    await waitFor(() => received.some((raw) => JSON.parse(raw).type === 'heartbeat'));
+    connection.close();
+    await rm(dir, { recursive: true, force: true });
+
+    const heartbeat = received.map((raw) => JSON.parse(raw)).find((item) => item.type === 'heartbeat');
+    expect(heartbeat.payload.resources.availability.mode).toBe('manual_paused');
+    expect(heartbeat.payload.resources.availability.can_accept_tasks).toBe(false);
   });
 });
 

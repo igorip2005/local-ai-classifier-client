@@ -33,6 +33,18 @@ CLIENT_DATA_DIR=/www/projects/local-ai-classifier-client/var
 
 `host_id` создаётся один раз и хранится в `CLIENT_DATA_DIR/host_id`.
 
+## Owner controls
+
+Владелец машины может временно выключить или включить участие client в обработке задач:
+
+```bash
+npm start -- pause
+npm start -- resume
+npm start -- status
+```
+
+Состояние хранится в `CLIENT_DATA_DIR/control.json` и отражается в heartbeat как `manual_paused`.
+
 ## Примечания по электричеству
 
 - Client отправляет только исходящее WebSocket-соединение к router.
