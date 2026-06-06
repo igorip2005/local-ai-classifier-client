@@ -395,3 +395,30 @@ Still external/not locally provable:
 - Client user service must still be installed and verified on each target client host.
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
+
+Additional explicit boolean env parsing hardening at 2026-06-07 05:11 +07:
+
+- Rechecked client config against router `doc/IMPLEMENTATION_DETAILS.md` sections 17, 20, 21, 24 and 25.
+- Found that `z.coerce.boolean()` treats the string `"false"` as `true`, which made `.env` boolean flags unsafe.
+- Risk:
+  - `CLIENT_DEPLOY_ENABLED=false` could be parsed as deploy enabled;
+  - `CLIENT_ALLOW_MODEL_PULL=false` could be parsed as model pull enabled;
+  - `CLIENT_MANUAL_ENABLED=false` could be parsed as manual mode enabled.
+- Fixed in the client repo:
+  - added explicit env boolean parsing for `true/false`, `1/0`, `yes/no` and `on/off`;
+  - invalid boolean values remain invalid instead of being guessed;
+  - `.env.example` is parsed through `loadConfig` in unit coverage.
+- Added comments in `src/config.ts` documenting the production fail-closed logic and boolean parsing reason, with links to the implementation sections.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted config unit test passed: 1 test file and 6 tests.
+- Client `npm test` passed: 17 passed test files and 46 passed tests, plus 1 skipped local Ollama test file.
+- Router `npm run test:e2e` passed with this client build: classify, chat, import, batch, export and deploy with fake Ollama.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.

@@ -10,13 +10,13 @@ const configSchema = z.object({
   buildId: z.string().min(1).default('dev'),
   localLogMode: z.enum(['none', 'metadata', 'full']).default('none'),
   maxConcurrentTasks: z.coerce.number().int().positive().default(1),
-  allowModelPull: z.coerce.boolean().default(false),
-  manualEnabled: z.coerce.boolean().default(true),
+  allowModelPull: envBoolean(false),
+  manualEnabled: envBoolean(true),
   fastHeartbeatMs: z.coerce.number().int().positive().default(5000),
   fullHeartbeatMs: z.coerce.number().int().positive().default(15000),
   clientDataDir: z.string().min(1).default('/www/projects/local-ai-classifier-client/var'),
   statusPort: z.coerce.number().int().min(0).max(65535).default(0),
-  deployEnabled: z.coerce.boolean().default(false),
+  deployEnabled: envBoolean(false),
   deployCommand: z.string().optional(),
   deployTimeoutMs: z.coerce.number().int().positive().default(120_000),
   logLevel: z.string().default('info')
@@ -54,6 +54,8 @@ export const config = loadConfig();
 function assertProductionConfig(config: ClientConfig): void {
   if (config.nodeEnv !== 'production') return;
 
+  // IMPLEMENTATION_DETAILS.md sections 17, 20 and 25: production clients must not
+  // boot with local dev identity, router endpoints, or incomplete trusted deploy config.
   const failures: string[] = [];
   if (config.routerUrl === 'ws://127.0.0.1:3100/v1/hosts/connect') {
     failures.push('ROUTER_URL must point to the production router in production');
@@ -73,4 +75,19 @@ function assertProductionConfig(config: ClientConfig): void {
   if (failures.length > 0) {
     throw new Error(`Invalid production client configuration: ${failures.join('; ')}`);
   }
+}
+
+function envBoolean(defaultValue: boolean) {
+  return z.preprocess((value) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    }
+    // Env files carry booleans as strings. Keep invalid values invalid, but never
+    // let JavaScript truthiness turn the string "false" into true.
+    return value;
+  }, z.boolean().default(defaultValue));
 }
