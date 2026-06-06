@@ -12,6 +12,7 @@
     "deploy:preflight": "tsx scripts/run-deploy-preflight.ts",
     "deploy:install-service": "tsx scripts/run-deploy-install-service.ts",
     "deploy:service-status": "tsx scripts/run-deploy-service-status.ts",
+    "production:readiness": "tsx scripts/run-production-readiness.ts",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",

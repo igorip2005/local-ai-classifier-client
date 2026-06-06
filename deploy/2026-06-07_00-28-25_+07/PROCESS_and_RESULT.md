@@ -215,6 +215,26 @@ Still external/not locally provable:
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
 
+Additional client production readiness gate at 2026-06-07 06:46 +07:
+
+- Rechecked the remaining client production gap from router `doc/gaps.md`: client systemd user service is not proven installed/enabled on target client hosts.
+- Found that client had `deploy:preflight` and `deploy:service-status`, but no single fail-closed command that says a target client host is production-ready.
+- Fixed in the client repo:
+  - added `src/deploy/production-readiness.ts`;
+  - added `npm run production:readiness`;
+  - added unit coverage for pass, preflight-warning fail and service-status fail;
+  - updated `RUNBOOK.md` and `README.md`.
+- Business logic: build/test success does not prove a client host is ready. The gate returns `pass` only when deploy preflight passes without warnings and the systemd user service is enabled and active.
+- Source basis: router `doc/IMPLEMENTATION_DETAILS.md` sections 20, 23, 24 and 25, plus router `doc/gaps.md` target-host client service gap.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted production-readiness/runbook/deploy readiness tests passed: 4 test files and 9 tests.
+- Client `npm run production:readiness` correctly returned `fail` and exit code `1` on this local server because target `.env` and systemd user service evidence are absent.
+- Client `npm test` passed: 18 test files and 52 tests passed, plus 1 skipped opt-in local Ollama test file.
+- Client `git diff --check` passed.
+
 Additional client deploy/status output redaction hardening at 2026-06-07 06:36 +07:
 
 - Rechecked client production service tooling against router `doc/IMPLEMENTATION_DETAILS.md` sections 20, 23, 24, 25 and 27.

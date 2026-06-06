@@ -9,6 +9,7 @@ describe('client runbook coverage', () => {
     for (const required of [
       'Install Client Host',
       'Install Linux User Service',
+      'Production Readiness Gate',
       'Owner Controls',
       'Ollama And Model Discovery',
       'Client Recovery',
@@ -22,6 +23,7 @@ describe('client runbook coverage', () => {
     for (const commandOrSetting of [
       'CLIENT_LOCAL_LOG_MODE=none',
       'npm run deploy:service-status',
+      'npm run production:readiness',
       'RUN_LOCAL_OLLAMA=1 CLASSIFICATION_MIN_ACCURACY=0.9 npm run classification:baseline',
       'CLIENT_DEPLOY_ENABLED=true',
       'CLIENT_DATA_DIR/deploy/rollback.json',

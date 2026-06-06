@@ -63,6 +63,7 @@ npm run deploy:preflight
 npm run deploy:install-service
 CLIENT_DEPLOY_INSTALL_CONFIRM=1 npm run deploy:install-service
 npm run deploy:service-status
+npm run production:readiness
 ```
 
 The install command is dry-run unless `CLIENT_DEPLOY_INSTALL_CONFIRM=1` is set.
@@ -72,6 +73,25 @@ Expected signal:
 - `local-ai-classifier.service` is enabled and active;
 - service uses `/www/projects/local-ai-classifier-client/.env`;
 - service restarts automatically after failure.
+
+## Production Readiness Gate
+
+Run on each target client host after `.env` is configured and the user service
+has been installed:
+
+```bash
+npm run production:readiness
+```
+
+Expected production signal:
+
+- overall `status` is `pass`;
+- `deploy-preflight` is `pass`, proving package scripts, service artifact and target-host `.env` are present;
+- `systemd-user-service` is `pass`, proving `local-ai-classifier.service` is enabled and active.
+
+Any `fail` means this client host is not ready for production acceptance. Fix
+`deploy:preflight` or `deploy:service-status` before using it as a trusted
+deploy/GPU acceptance target.
 
 ## Owner Controls
 
