@@ -1,0 +1,65 @@
+import { z } from 'zod';
+import type { HostModel } from './protocol.js';
+
+const tagsSchema = z.object({
+  models: z.array(z.object({
+    name: z.string(),
+    size: z.number().optional(),
+    details: z.object({
+      family: z.string().optional(),
+      parameter_size: z.string().optional(),
+      quantization_level: z.string().optional()
+    }).optional()
+  })).default([])
+});
+
+const psSchema = z.object({
+  models: z.array(z.object({ name: z.string() })).default([])
+});
+
+export type OllamaHealth = { ok: boolean; version: string | null };
+
+export class OllamaClient {
+  constructor(private readonly baseUrl: string) {}
+
+  async health(): Promise<OllamaHealth> {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/version`);
+      if (!response.ok) return { ok: false, version: null };
+      const body = await response.json() as { version?: string };
+      return { ok: true, version: body.version ?? null };
+    } catch {
+      return { ok: false, version: null };
+    }
+  }
+
+  async discoverModels(): Promise<HostModel[]> {
+    const [tags, loaded] = await Promise.all([this.tags(), this.loadedModelNames()]);
+    return tags.map((model) => ({ ...model, loaded: loaded.has(model.name) }));
+  }
+
+  private async tags(): Promise<Omit<HostModel, 'loaded'>[]> {
+    const response = await fetch(`${this.baseUrl}/api/tags`);
+    if (!response.ok) return [];
+    const parsed = tagsSchema.parse(await response.json());
+    return parsed.models.map((model) => {
+      const output: Omit<HostModel, 'loaded'> = { name: model.name };
+      if (model.size !== undefined) output.size_bytes = model.size;
+      if (model.details?.family) output.family = model.details.family;
+      if (model.details?.parameter_size) output.parameter_size = model.details.parameter_size;
+      if (model.details?.quantization_level) output.quantization = model.details.quantization_level;
+      return output;
+    });
+  }
+
+  private async loadedModelNames(): Promise<Set<string>> {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/ps`);
+      if (!response.ok) return new Set();
+      const parsed = psSchema.parse(await response.json());
+      return new Set(parsed.models.map((model) => model.name));
+    } catch {
+      return new Set();
+    }
+  }
+}

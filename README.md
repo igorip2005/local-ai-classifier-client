@@ -1,124 +1,41 @@
-# local-ai-classifier
+# local-ai-classifier-client
 
-Локальная HTTP-обёртка над Ollama для классификатора. Работает внутри LAN/Tailscale, проксирует запросы в Ollama и пишет в PostgreSQL:
+Локальный host-agent для проекта Local AI Classifier Router.
 
-- откуда пришёл запрос: IP, host, user-agent, forwarded-for;
-- тело входящего запроса и ответа;
-- модель Ollama;
-- входящие/исходящие токены (`prompt_eval_count`, `eval_count`);
-- длительность обработки в миллисекундах и секундах;
-- CPU/system load/memory;
-- процессы Ollama и их CPU delta;
-- GPU telemetry через `nvidia-smi`: utilization, memory, temperature, power draw, clocks;
-- примерную энергию GPU за запрос и CPU RAPL, если доступен `/sys/class/powercap`.
+Client запускается на машине владельца рядом с Ollama, держит исходящее WebSocket-соединение с Router, сообщает `host_id`, capabilities, heartbeat и состояние доступности машины. В MVP client не открывает входящий публичный порт и по умолчанию не хранит локальные тексты запросов.
 
 ## Быстрый старт
 
 ```bash
-cd /www/projects/local-ai-classifier
+cd /www/projects/local-ai-classifier-client
 cp .env.example .env
 npm install
-npm run migrate
 npm start
 ```
 
-По умолчанию сервер слушает `0.0.0.0:3088`, то есть доступен в локалке/Tailscale, но не публикуется наружу сам по себе.
-
-## PostgreSQL
-
-Создай БД и пользователя, если их ещё нет:
-
-```sql
-CREATE USER local_ai_classifier WITH PASSWORD 'local_ai_classifier';
-CREATE DATABASE local_ai_classifier OWNER local_ai_classifier;
-```
-
-Затем:
-
-```bash
-npm run migrate
-```
-
-## Endpoints
-
-### Health
-
-```bash
-curl http://127.0.0.1:3088/health
-```
-
-### Chat proxy
-
-```bash
-curl -s http://127.0.0.1:3088/v1/chat \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model":"qwen3:1.7b",
-    "think":false,
-    "stream":false,
-    "messages":[{"role":"user","content":"Классифицируй: привет"}],
-    "options":{"temperature":0,"num_ctx":4096}
-  }'
-```
-
-Также поддерживаются совместимые пути:
-
-- `POST /api/chat`
-- `POST /v1/chat`
-- `POST /api/generate`
-- `POST /v1/generate`
-
-Ответ дополняется:
-
-```json
-{
-  "wrapper": {
-    "request_id": "..."
-  }
-}
-```
-
-По этому id можно посмотреть запись:
-
-```bash
-curl http://127.0.0.1:3088/v1/requests/<request_id>
-```
-
-Список последних запросов:
-
-```bash
-curl http://127.0.0.1:3088/v1/requests?limit=50
-```
+По умолчанию client подключается к `ws://127.0.0.1:3100/v1/hosts/connect` и использует локальную Ollama `http://127.0.0.1:11434`.
 
 ## Важные env-параметры
 
 ```env
-PORT=3088
-HOST=0.0.0.0
+ROUTER_URL=ws://127.0.0.1:3100/v1/hosts/connect
+SETUP_TOKEN=
 OLLAMA_BASE_URL=http://127.0.0.1:11434
-DEFAULT_MODEL=qwen3:1.7b
-DEFAULT_THINK=false
-DEFAULT_STREAM=false
-DATABASE_URL=postgres://local_ai_classifier:local_ai_classifier@127.0.0.1:5432/local_ai_classifier
-API_KEY=
-NVIDIA_SMI_PATH=/usr/lib/wsl/lib/nvidia-smi
-LOG_FULL_BODIES=true
+CLIENT_NAME=local-test-client
+CLIENT_LOCAL_LOG_MODE=none
+CLIENT_MAX_CONCURRENT_TASKS=1
+CLIENT_ALLOW_MODEL_PULL=false
+CLIENT_MANUAL_ENABLED=true
+CLIENT_FAST_HEARTBEAT_MS=5000
+CLIENT_FULL_HEARTBEAT_MS=15000
+CLIENT_DATA_DIR=/www/projects/local-ai-classifier-client/var
 ```
 
-Если нужно ограничить доступ ключом:
-
-```env
-API_KEY=some-secret
-```
-
-И в запросах добавлять:
-
-```bash
--H 'x-api-key: some-secret'
-```
+`host_id` создаётся один раз и хранится в `CLIENT_DATA_DIR/host_id`.
 
 ## Примечания по электричеству
 
-- GPU power берётся из `nvidia-smi power.draw`, энергия считается приблизительно по среднему power до/после запроса.
-- CPU energy берётся из RAPL (`/sys/class/powercap`), если доступно. В WSL2 чаще всего недоступно, тогда поле будет `null`.
-- Для точного power metering всего компьютера нужен внешний ваттметр/UPS API; софт внутри WSL не видит всё железо напрямую.
+- Client отправляет только исходящее WebSocket-соединение к router.
+- Локальное логирование запросов выключено режимом `CLIENT_LOCAL_LOG_MODE=none`.
+- GPU telemetry берётся из `nvidia-smi`, если он доступен.
+- Бизнес-логика взята из `/www/projects/local-ai-classifier-router/doc/IMPLEMENTATION_DETAILS.md`, разделы 5, 7, 15, 20, 21 и 24.

@@ -1,36 +1,47 @@
 {
-  "name": "local-ai-classifier",
+  "name": "local-ai-classifier-client",
   "version": "0.1.0",
-  "description": "Local Ollama wrapper with PostgreSQL request and hardware telemetry logging.",
+  "description": "Local host agent for Local AI Classifier Router and Ollama.",
   "type": "module",
-  "main": "src/server.js",
+  "main": "dist/src/main.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
-    "migrate": "node scripts/migrate.js",
-    "check": "node --check src/server.js && node --check src/db.js && node --check src/metrics.js && node --check scripts/migrate.js"
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/src/main.js",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:local-ollama": "vitest run tests/integration/local-ollama.test.ts"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/igorip2005/local-ai-classifier.git"
+    "url": "git+https://github.com/igorip2005/local-ai-classifier-client.git"
   },
   "keywords": [
     "ollama",
-    "postgres",
+    "websocket",
     "telemetry",
-    "classifier"
+    "classifier",
+    "host-agent"
   ],
   "author": "Igor / KLO4",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/igorip2005/local-ai-classifier/issues"
+    "url": "https://github.com/igorip2005/local-ai-classifier-client/issues"
   },
-  "homepage": "https://github.com/igorip2005/local-ai-classifier#readme",
+  "homepage": "https://github.com/igorip2005/local-ai-classifier-client#readme",
   "dependencies": {
     "dotenv": "^17.2.3",
-    "express": "^5.1.0",
-    "pg": "^8.16.3",
+    "pino": "^10.1.0",
     "uuid": "^13.0.0",
+    "ws": "^8.18.3",
     "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.2",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.14"
   }
 }

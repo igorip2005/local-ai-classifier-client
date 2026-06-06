@@ -1,12 +1,12 @@
 [Unit]
-Description=Local AI Classifier Ollama Wrapper
+Description=Local AI Classifier Client Agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/www/projects/local-ai-classifier
-EnvironmentFile=/www/projects/local-ai-classifier/.env
+WorkingDirectory=/www/projects/local-ai-classifier-client
+EnvironmentFile=/www/projects/local-ai-classifier-client/.env
 ExecStart=/usr/bin/npm start
 Restart=always
 RestartSec=5
