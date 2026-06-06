@@ -108,6 +108,123 @@ describe('RouterConnection', () => {
     expect(heartbeat.payload.resources.availability.can_accept_tasks).toBe(false);
   });
 
+  it('rejects task_start while owner has manually paused the client', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-paused-task-'));
+    await setManualEnabled(dir, false);
+    const received: string[] = [];
+    server = http.createServer();
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (socket) => {
+      socket.on('message', (data) => {
+        const raw = data.toString();
+        received.push(raw);
+        const envelope = JSON.parse(raw) as { type: string };
+        if (envelope.type === 'register') {
+          socket.send(JSON.stringify({
+            type: 'task_start',
+            request_id: 'task-request-paused',
+            payload: {
+              task_id: 'task-paused-1',
+              kind: 'classify_message',
+              priority: 80,
+              model: 'qwen2.5:0.5b',
+              timeout_ms: 5000,
+              input: { text: 'Сколько стоит?', classes: ['sales', 'support', 'spam', 'other'] },
+              options: { temperature: 0, num_ctx: 1024, think: false, stream: false }
+            }
+          }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+
+    const config = loadConfig({
+      ROUTER_URL: `ws://127.0.0.1:${address.port}`,
+      CLIENT_DATA_DIR: dir,
+      OLLAMA_BASE_URL: 'http://127.0.0.1:9',
+      CLIENT_FAST_HEARTBEAT_MS: '1000',
+      CLIENT_MANUAL_ENABLED: 'true',
+      CLIENT_NAME: 'paused-task-client'
+    });
+    const connection = new RouterConnection(config, 'host-paused-task-id', '0.1.0');
+    connection.connect();
+
+    await waitFor(() => received.some((raw) => JSON.parse(raw).type === 'task_error'), 1500);
+    connection.close();
+    await rm(dir, { recursive: true, force: true });
+
+    const error = received.map((raw) => JSON.parse(raw)).find((item) => item.type === 'task_error');
+    expect(error.payload.task_id).toBe('task-paused-1');
+    expect(error.payload.error).toMatchObject({
+      code: 'client_unavailable',
+      message: 'Client is unavailable: manual_paused'
+    });
+  });
+
+  it('rejects task_start while local GPU telemetry is busy', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-gpu-busy-task-'));
+    const nvidiaSmi = path.join(dir, 'nvidia-smi');
+    await writeFile(nvidiaSmi, '#!/bin/sh\nprintf "RTX Test, 95, 1000, 12000\\n"\n');
+    await chmod(nvidiaSmi, 0o700);
+    const originalNvidiaSmiPath = process.env.NVIDIA_SMI_PATH;
+    process.env.NVIDIA_SMI_PATH = nvidiaSmi;
+    const received: string[] = [];
+    server = http.createServer();
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (socket) => {
+      socket.on('message', (data) => {
+        const raw = data.toString();
+        received.push(raw);
+        const envelope = JSON.parse(raw) as { type: string };
+        if (envelope.type === 'register') {
+          socket.send(JSON.stringify({
+            type: 'task_start',
+            request_id: 'task-request-gpu-busy',
+            payload: {
+              task_id: 'task-gpu-busy-1',
+              kind: 'classify_message',
+              priority: 80,
+              model: 'qwen2.5:0.5b',
+              timeout_ms: 5000,
+              input: { text: 'Сколько стоит?', classes: ['sales', 'support', 'spam', 'other'] },
+              options: { temperature: 0, num_ctx: 1024, think: false, stream: false }
+            }
+          }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+
+    const config = loadConfig({
+      ROUTER_URL: `ws://127.0.0.1:${address.port}`,
+      CLIENT_DATA_DIR: dir,
+      OLLAMA_BASE_URL: 'http://127.0.0.1:9',
+      CLIENT_FAST_HEARTBEAT_MS: '1000',
+      CLIENT_NAME: 'gpu-busy-task-client'
+    });
+    const connection = new RouterConnection(config, 'host-gpu-busy-task-id', '0.1.0');
+    try {
+      connection.connect();
+      await waitFor(() => received.some((raw) => JSON.parse(raw).type === 'task_error'), 1500);
+    } finally {
+      connection.close();
+      if (originalNvidiaSmiPath === undefined) delete process.env.NVIDIA_SMI_PATH;
+      else process.env.NVIDIA_SMI_PATH = originalNvidiaSmiPath;
+      await rm(dir, { recursive: true, force: true });
+    }
+
+    const error = received.map((raw) => JSON.parse(raw)).find((item) => item.type === 'task_error');
+    expect(error.payload.task_id).toBe('task-gpu-busy-1');
+    expect(error.payload.error).toMatchObject({
+      code: 'client_unavailable',
+      message: 'Client is unavailable: gpu_busy'
+    });
+  });
+
   it('reports Ollama unavailable in heartbeat without breaking registration', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-ollama-down-'));
     const received: string[] = [];

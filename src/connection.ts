@@ -4,7 +4,7 @@ import WebSocket from 'ws';
 import type { ClientConfig } from './config.js';
 import { buildRegisterPayload } from './capabilities.js';
 import { collectResources } from './metrics.js';
-import { evaluateAvailability } from './availability.js';
+import { evaluateAvailability, type Availability } from './availability.js';
 import type { DeployResultPayload, DeployUpdatePayload, Envelope, HeartbeatPayload, TaskErrorPayload, TaskResultPayload, TaskStartPayload } from './protocol.js';
 import { runTask } from './task-runner.js';
 import { readManualEnabled } from './control.js';
@@ -166,6 +166,12 @@ export class RouterConnection extends EventEmitter {
   }
 
   private async handleTaskStart(task: TaskStartPayload): Promise<void> {
+    const availability = await this.currentAvailability();
+    if (!availability.can_accept_tasks) {
+      this.sendTaskError(task, 'client_unavailable', `Client is unavailable: ${availability.mode}`);
+      void this.sendHeartbeat();
+      return;
+    }
     if (this.activeTasks >= this.config.maxConcurrentTasks) {
       this.sendTaskError(task, 'client_busy', 'Client is at max concurrency');
       return;
@@ -203,6 +209,14 @@ export class RouterConnection extends EventEmitter {
 
   private sendDeployResult(payload: DeployResultPayload): void {
     this.send({ type: 'deploy_result', request_id: randomUUID(), payload });
+  }
+
+  private async currentAvailability(): Promise<Availability> {
+    const [resources, manualEnabled] = await Promise.all([
+      collectResources(),
+      readManualEnabled(this.config.clientDataDir, this.config.manualEnabled)
+    ]);
+    return evaluateAvailability(resources, manualEnabled);
   }
 }
 

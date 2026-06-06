@@ -239,3 +239,27 @@ Still external/not locally provable:
 - Client user service must still be installed and verified on each target client host.
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
+
+Additional client-side owner safety hardening at 2026-06-07 03:51 +07:
+
+- Rechecked client task execution against router `doc/IMPLEMENTATION_DETAILS.md` sections 7, 20, 21, 23 and 24.
+- Found that heartbeat reported manual pause/GPU-busy availability, but a defensive local check before `task_start` execution was not proven.
+- Added a client-side task boundary check before running Ollama work:
+  - reads current manual owner control state;
+  - collects current local resource telemetry;
+  - evaluates availability with the same owner/GPU policy used in heartbeat;
+  - rejects tasks with `task_error` code `client_unavailable` when the owner paused the client or GPU is currently busy.
+- This is defense-in-depth for owner safety: router should avoid assigning such hosts, and client now also refuses work if a stale heartbeat or router bug sends a task anyway.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted router-connection integration passed: 1 test file and 9 tests.
+- Client `npm test` passed: 16 passed test files and 37 passed tests, plus 1 skipped local Ollama test file.
+- Router `npm run test:e2e` passed with this client build: classify, chat, import, batch, export and deploy with fake Ollama.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.
