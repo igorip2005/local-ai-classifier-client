@@ -8,6 +8,19 @@ import type { DeployResultPayload, DeployUpdatePayload } from './protocol.js';
 
 const execFileAsync = promisify(execFileCallback);
 
+type RollbackManifest = {
+  schema_version: 'local-ai-classifier-client-deploy-rollback-v1';
+  deploy_id: string;
+  status: 'command_started';
+  created_at: string;
+  previous_client_version: string;
+  previous_build_id: string;
+  target_version: string;
+  artifact_path: string;
+  artifact_sha256: string;
+  rollback_note: string;
+};
+
 class SafeDeployError extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
@@ -34,7 +47,15 @@ export async function runDeployUpdate(
     await mkdir(deployDir, { recursive: true, mode: 0o700 });
     const artifactPath = path.join(deployDir, `${payload.deploy_id}.artifact`);
     await writeFile(artifactPath, bytes, { mode: 0o600 });
-    await runDeployCommand(deployCommand, config.deployTimeoutMs, artifactPath, payload.target_version, payload.deploy_id);
+    const rollbackManifestPath = await writeRollbackManifest(deployDir, config, clientVersion, artifactPath, payload);
+    await runDeployCommand(deployCommand, config.deployTimeoutMs, {
+      artifactPath,
+      targetVersion: payload.target_version,
+      deployId: payload.deploy_id,
+      previousClientVersion: clientVersion,
+      previousBuildId: config.buildId,
+      rollbackManifestPath
+    });
     return { deploy_id: payload.deploy_id, host_id: hostId, status: 'succeeded', client_version: clientVersion };
   } catch (error) {
     const safeError = toSafeDeployError(error);
@@ -70,18 +91,26 @@ async function downloadArtifact(url: string, timeoutMs: number): Promise<Buffer>
 async function runDeployCommand(
   deployCommand: string,
   timeoutMs: number,
-  artifactPath: string,
-  targetVersion: string,
-  deployId: string
+  context: {
+    artifactPath: string;
+    targetVersion: string;
+    deployId: string;
+    previousClientVersion: string;
+    previousBuildId: string;
+    rollbackManifestPath: string;
+  }
 ): Promise<void> {
   try {
-    await execFileAsync(deployCommand, [artifactPath, targetVersion, deployId], {
+    await execFileAsync(deployCommand, [context.artifactPath, context.targetVersion, context.deployId], {
       timeout: timeoutMs,
       env: {
         ...process.env,
-        LOCAL_AI_DEPLOY_ARTIFACT: artifactPath,
-        LOCAL_AI_DEPLOY_TARGET_VERSION: targetVersion,
-        LOCAL_AI_DEPLOY_ID: deployId
+        LOCAL_AI_DEPLOY_ARTIFACT: context.artifactPath,
+        LOCAL_AI_DEPLOY_TARGET_VERSION: context.targetVersion,
+        LOCAL_AI_DEPLOY_ID: context.deployId,
+        LOCAL_AI_DEPLOY_PREVIOUS_VERSION: context.previousClientVersion,
+        LOCAL_AI_DEPLOY_PREVIOUS_BUILD_ID: context.previousBuildId,
+        LOCAL_AI_DEPLOY_ROLLBACK_MANIFEST: context.rollbackManifestPath
       }
     });
   } catch (error) {
@@ -90,6 +119,37 @@ async function runDeployCommand(
     }
     throw new SafeDeployError('deploy_command_failed', 'Deploy command failed');
   }
+}
+
+async function writeRollbackManifest(
+  deployDir: string,
+  config: ClientConfig,
+  clientVersion: string,
+  artifactPath: string,
+  payload: DeployUpdatePayload
+): Promise<string> {
+  // IMPLEMENTATION_DETAILS.md section 25 requires trusted clients to retain the
+  // previous version signal for manual rollback. Store metadata only: the
+  // router-provided artifact URL may be signed or secret-bearing, so it is never
+  // persisted in the rollback manifest.
+  const manifest: RollbackManifest = {
+    schema_version: 'local-ai-classifier-client-deploy-rollback-v1',
+    deploy_id: payload.deploy_id,
+    status: 'command_started',
+    created_at: new Date().toISOString(),
+    previous_client_version: clientVersion,
+    previous_build_id: config.buildId,
+    target_version: payload.target_version,
+    artifact_path: artifactPath,
+    artifact_sha256: payload.artifact_sha256.toLowerCase(),
+    rollback_note: 'Use previous_client_version and previous_build_id to select the previous trusted client package or artifact for manual rollback.'
+  };
+  const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
+  const perDeployPath = path.join(deployDir, `${payload.deploy_id}.rollback.json`);
+  const latestPath = path.join(deployDir, 'rollback.json');
+  await writeFile(perDeployPath, serialized, { mode: 0o600 });
+  await writeFile(latestPath, serialized, { mode: 0o600 });
+  return latestPath;
 }
 
 function toSafeDeployError(error: unknown): SafeDeployError {

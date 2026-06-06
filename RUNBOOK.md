@@ -209,7 +209,20 @@ Expected behavior:
 - client downloads artifact from router-provided URL;
 - SHA-256 must match before command execution;
 - artifact is stored under `CLIENT_DATA_DIR/deploy`;
+- rollback metadata is stored before command execution:
+  - latest manifest: `CLIENT_DATA_DIR/deploy/rollback.json`;
+  - per-deploy manifest: `CLIENT_DATA_DIR/deploy/DEPLOY_ID.rollback.json`;
+  - manifest includes previous client version, previous build id, target version, local artifact path and artifact SHA-256;
+  - manifest does not include the router-provided artifact URL because it may be signed or secret-bearing;
 - result is reported as `deploy_result` over WebSocket;
 - router marks reconnect success only after the host registers with the target version/build metadata.
 
-Rollback is manual in the MVP: keep previous deploy artifacts or package versions available on each trusted test host.
+Deploy scripts also receive:
+
+```text
+LOCAL_AI_DEPLOY_PREVIOUS_VERSION
+LOCAL_AI_DEPLOY_PREVIOUS_BUILD_ID
+LOCAL_AI_DEPLOY_ROLLBACK_MANIFEST
+```
+
+Rollback is manual in the MVP: use `CLIENT_DATA_DIR/deploy/rollback.json` to identify the previous version/build, then reinstall the corresponding trusted package or artifact and restart the user service.

@@ -23,7 +23,9 @@ describe('client runbook coverage', () => {
       'CLIENT_LOCAL_LOG_MODE=none',
       'npm run deploy:service-status',
       'RUN_LOCAL_OLLAMA=1 CLASSIFICATION_MIN_ACCURACY=0.9 npm run classification:baseline',
-      'CLIENT_DEPLOY_ENABLED=true'
+      'CLIENT_DEPLOY_ENABLED=true',
+      'CLIENT_DATA_DIR/deploy/rollback.json',
+      'LOCAL_AI_DEPLOY_PREVIOUS_VERSION'
     ]) {
       expect(content).toContain(commandOrSetting);
     }

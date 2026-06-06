@@ -19,7 +19,11 @@ describe('runDeployUpdate', () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-deploy-'));
     const marker = path.join(dir, 'marker.json');
     const command = path.join(dir, 'deploy-command.sh');
-    await writeFile(command, `#!/bin/sh\nprintf '{"artifact":"%s","version":"%s","deploy":"%s"}' "$1" "$2" "$3" > "${marker}"\n`);
+    await writeFile(command, [
+      '#!/bin/sh',
+      `printf '{"artifact":"%s","version":"%s","deploy":"%s","previous_version":"%s","previous_build_id":"%s","rollback_manifest":"%s"}' "$1" "$2" "$3" "$LOCAL_AI_DEPLOY_PREVIOUS_VERSION" "$LOCAL_AI_DEPLOY_PREVIOUS_BUILD_ID" "$LOCAL_AI_DEPLOY_ROLLBACK_MANIFEST" > "${marker}"`,
+      ''
+    ].join('\n'));
     await chmod(command, 0o700);
     const artifact = Buffer.from('client artifact');
     const artifactUrl = await serveArtifact(artifact);
@@ -40,7 +44,24 @@ describe('runDeployUpdate', () => {
     const markerJson = JSON.parse(await readFile(marker, 'utf8')) as { artifact: string; version: string; deploy: string };
     expect(markerJson.version).toBe('0.1.1');
     expect(markerJson.deploy).toBe('deploy-1');
+    expect(markerJson.previous_version).toBe('0.1.0');
+    expect(markerJson.previous_build_id).toBe('dev');
     expect(await readFile(markerJson.artifact, 'utf8')).toBe('client artifact');
+    expect(markerJson.rollback_manifest).toBe(path.join(dir, 'deploy', 'rollback.json'));
+    const manifestText = await readFile(markerJson.rollback_manifest, 'utf8');
+    const manifest = JSON.parse(manifestText) as Record<string, unknown>;
+    expect(manifest).toMatchObject({
+      schema_version: 'local-ai-classifier-client-deploy-rollback-v1',
+      deploy_id: 'deploy-1',
+      status: 'command_started',
+      previous_client_version: '0.1.0',
+      previous_build_id: 'dev',
+      target_version: '0.1.1',
+      artifact_sha256: createHash('sha256').update(artifact).digest('hex')
+    });
+    expect(manifest.artifact_path).toBe(markerJson.artifact);
+    expect(await readFile(path.join(dir, 'deploy', 'deploy-1.rollback.json'), 'utf8')).toBe(manifestText);
+    expect(manifestText).not.toContain(artifactUrl);
     await rm(dir, { recursive: true, force: true });
   });
 

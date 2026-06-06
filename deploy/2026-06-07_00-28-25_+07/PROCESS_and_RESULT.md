@@ -422,3 +422,30 @@ Still external/not locally provable:
 - Client user service must still be installed and verified on each target client host.
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
+
+Additional trusted deploy rollback metadata at 2026-06-07 05:23 +07:
+
+- Rechecked trusted deploy safety against router `doc/IMPLEMENTATION_DETAILS.md` section 25.
+- Found that the client stored the downloaded target artifact, but did not persist the previous client version/build information needed for manual rollback.
+- Fixed in the client repo:
+  - writes metadata-only rollback manifests before running `CLIENT_DEPLOY_COMMAND`;
+  - latest manifest path: `CLIENT_DATA_DIR/deploy/rollback.json`;
+  - per-deploy manifest path: `CLIENT_DATA_DIR/deploy/DEPLOY_ID.rollback.json`;
+  - manifest records previous client version, previous build id, target version, local artifact path and artifact SHA-256;
+  - manifest intentionally does not persist router-provided artifact URL because it may be signed or secret-bearing;
+  - deploy command receives `LOCAL_AI_DEPLOY_PREVIOUS_VERSION`, `LOCAL_AI_DEPLOY_PREVIOUS_BUILD_ID` and `LOCAL_AI_DEPLOY_ROLLBACK_MANIFEST`.
+- Updated `RUNBOOK.md` with the manual rollback workflow.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted deploy unit test passed: 1 test file and 3 tests.
+- Client targeted runbook doc coverage passed: 1 test file and 1 test.
+- Client `npm test` passed: 17 passed test files and 46 passed tests, plus 1 skipped local Ollama test file.
+- Router `npm run test:e2e` initially exposed a router deploy reconnect ordering race, then passed after the router fix with this client build: classify, chat, import, batch, export and deploy with fake Ollama.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.
