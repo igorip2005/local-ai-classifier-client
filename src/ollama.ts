@@ -43,32 +43,30 @@ export class OllamaClient {
     return models.some((model) => model.name === modelName);
   }
 
-  async pullModel(modelName: string, timeoutMs: number): Promise<void> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  async pullModel(modelName: string, timeoutMs: number, signal?: AbortSignal): Promise<void> {
+    const { signal: timeoutSignal, cleanup } = timeoutAbortSignal(timeoutMs, signal);
     try {
       const response = await fetch(`${this.baseUrl}/api/pull`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: modelName, stream: false }),
-        signal: controller.signal
+        signal: timeoutSignal
       });
       const text = await response.text();
       if (!response.ok) throw new Error(`Ollama pull returned ${response.status}: ${text.slice(0, 200)}`);
     } finally {
-      clearTimeout(timeout);
+      cleanup();
     }
   }
 
-  async chat(body: Record<string, unknown>, timeoutMs: number): Promise<Record<string, unknown>> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  async chat(body: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const { signal: timeoutSignal, cleanup } = timeoutAbortSignal(timeoutMs, signal);
     try {
       const response = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
-        signal: controller.signal
+        signal: timeoutSignal
       });
       const text = await response.text();
       const parsed = safeJson(text);
@@ -77,7 +75,7 @@ export class OllamaClient {
       }
       return parsed ?? { raw: text };
     } finally {
-      clearTimeout(timeout);
+      cleanup();
     }
   }
 
@@ -117,4 +115,19 @@ function safeJson(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function timeoutAbortSignal(timeoutMs: number, parentSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  if (parentSignal?.aborted) abort();
+  else parentSignal?.addEventListener('abort', abort, { once: true });
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      parentSignal?.removeEventListener('abort', abort);
+    }
+  };
 }

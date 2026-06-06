@@ -4,9 +4,9 @@ import type { TaskResultPayload, TaskStartPayload } from './protocol.js';
 import { writeLocalTaskLog } from './local-log.js';
 import { applyClassificationGuardrails, type Classification } from './classification-rules.js';
 
-export async function runTask(config: ClientConfig, task: TaskStartPayload): Promise<TaskResultPayload> {
-  await ensureTaskModel(config, task.model, task.timeout_ms);
-  if (task.kind === 'chat_completion') return await runChatCompletion(config, task);
+export async function runTask(config: ClientConfig, task: TaskStartPayload, signal?: AbortSignal): Promise<TaskResultPayload> {
+  await ensureTaskModel(config, task.model, task.timeout_ms, signal);
+  if (task.kind === 'chat_completion') return await runChatCompletion(config, task, signal);
   if (task.kind !== 'classify_message' && task.kind !== 'classify_batch_item') {
     throw new Error(`Unsupported task kind: ${task.kind}`);
   }
@@ -14,13 +14,13 @@ export async function runTask(config: ClientConfig, task: TaskStartPayload): Pro
   const started = Date.now();
   const ollama = new OllamaClient(config.ollamaBaseUrl);
   const body = buildClassifyChatBody(task);
-  const raw = await ollama.chat(body, task.timeout_ms);
+  const raw = await ollama.chat(body, task.timeout_ms, signal);
   const classes = task.input.classes ?? ['sales', 'support', 'spam', 'other'];
   const normalized = normalizeModelResponse(raw, classes);
   let finalRaw = raw;
   let modelOutput = normalized.output;
   if (!normalized.validJson) {
-    finalRaw = await ollama.chat(buildRepairChatBody(task.model, normalized.rawContent, task.input.text ?? '', classes), task.timeout_ms);
+    finalRaw = await ollama.chat(buildRepairChatBody(task.model, normalized.rawContent, task.input.text ?? '', classes), task.timeout_ms, signal);
     modelOutput = normalizeModelResponse(finalRaw, classes).output;
   }
   const output = applyClassificationGuardrails(
@@ -49,16 +49,16 @@ export async function runTask(config: ClientConfig, task: TaskStartPayload): Pro
   return result;
 }
 
-async function ensureTaskModel(config: ClientConfig, model: string, timeoutMs: number): Promise<void> {
+async function ensureTaskModel(config: ClientConfig, model: string, timeoutMs: number, signal?: AbortSignal): Promise<void> {
   const ollama = new OllamaClient(config.ollamaBaseUrl);
   if (await ollama.hasModel(model)) return;
   if (!config.allowModelPull) {
     throw new Error(`Model is not installed locally and model pull is disabled: ${model}`);
   }
-  await ollama.pullModel(model, timeoutMs);
+  await ollama.pullModel(model, timeoutMs, signal);
 }
 
-async function runChatCompletion(config: ClientConfig, task: TaskStartPayload): Promise<TaskResultPayload> {
+async function runChatCompletion(config: ClientConfig, task: TaskStartPayload, signal?: AbortSignal): Promise<TaskResultPayload> {
   const started = Date.now();
   const ollama = new OllamaClient(config.ollamaBaseUrl);
   const raw = await ollama.chat({
@@ -67,7 +67,7 @@ async function runChatCompletion(config: ClientConfig, task: TaskStartPayload): 
     think: false,
     options: { temperature: task.options.temperature, num_ctx: task.options.num_ctx ?? 2048 },
     messages: task.input.messages ?? []
-  }, task.timeout_ms);
+  }, task.timeout_ms, signal);
   const durationMs = Date.now() - started;
   const content = typeof raw.message === 'object' && raw.message
     ? String((raw.message as { content?: unknown }).content ?? '')

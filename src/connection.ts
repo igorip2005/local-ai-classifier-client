@@ -12,6 +12,7 @@ import {
   type Envelope,
   type HeartbeatPayload,
   type TaskErrorPayload,
+  type TaskCancelPayload,
   type TaskResultPayload,
   type TaskStartPayload
 } from './protocol.js';
@@ -30,6 +31,7 @@ export class RouterConnection extends EventEmitter {
   private shouldReconnect = true;
   private loadedModels: string[] = [];
   private capabilitiesSignature = '';
+  private readonly taskControllers = new Map<string, AbortController>();
 
   constructor(
     private readonly config: ClientConfig,
@@ -165,6 +167,9 @@ export class RouterConnection extends EventEmitter {
       if (envelope.type === 'task_start') {
         void this.handleTaskStart(envelope.payload as TaskStartPayload);
       }
+      if (envelope.type === 'task_cancel') {
+        this.handleTaskCancel(envelope.payload as TaskCancelPayload);
+      }
       if (envelope.type === 'deploy_update') {
         void this.handleDeployUpdate(envelope.payload as DeployUpdatePayload);
       }
@@ -186,15 +191,26 @@ export class RouterConnection extends EventEmitter {
       return;
     }
     this.activeTasks += 1;
+    const controller = new AbortController();
+    this.taskControllers.set(task.task_id, controller);
     try {
-      const result = await runTask(this.config, task);
-      this.sendTaskResult(result);
+      const result = await runTask(this.config, task, controller.signal);
+      if (!controller.signal.aborted) this.sendTaskResult(result);
     } catch (error) {
-      this.sendTaskError(task, 'task_failed', error instanceof Error ? error.message : 'Task failed');
+      if (controller.signal.aborted) {
+        this.sendTaskError(task, 'task_canceled', 'Task canceled by router');
+      } else {
+        this.sendTaskError(task, 'task_failed', error instanceof Error ? error.message : 'Task failed');
+      }
     } finally {
+      this.taskControllers.delete(task.task_id);
       this.activeTasks -= 1;
       void this.sendHeartbeat();
     }
+  }
+
+  private handleTaskCancel(payload: TaskCancelPayload): void {
+    this.taskControllers.get(payload.task_id)?.abort();
   }
 
   private sendTaskResult(payload: TaskResultPayload): void {

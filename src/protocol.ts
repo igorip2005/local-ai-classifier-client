@@ -81,6 +81,12 @@ export type TaskErrorPayload = {
   error: { code: string; message: string; details?: unknown };
 };
 
+export type TaskCancelPayload = {
+  task_id: string;
+  job_id?: string;
+  reason: string;
+};
+
 export type DeployUpdatePayload = {
   deploy_id: string;
   target_version: string;
@@ -149,11 +155,22 @@ const deployUpdatePayloadSchema = z.object({
   artifact_sha256: z.string().regex(/^[a-f0-9]{64}$/i)
 });
 
+const taskCancelPayloadSchema = z.object({
+  task_id: z.string().min(1),
+  job_id: z.string().min(1).optional(),
+  reason: z.string().min(1)
+});
+
 export const inboundRouterEnvelopeSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('task_start'),
     request_id: z.string().min(1),
     payload: taskStartPayloadSchema
+  }),
+  z.object({
+    type: z.literal('task_cancel'),
+    request_id: z.string().min(1),
+    payload: taskCancelPayloadSchema
   }),
   z.object({
     type: z.literal('deploy_update'),

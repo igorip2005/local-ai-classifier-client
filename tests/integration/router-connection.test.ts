@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import { RouterConnection } from '../../src/connection.js';
@@ -455,6 +455,92 @@ describe('RouterConnection', () => {
     connection.close();
     await new Promise<void>((resolve) => ollama.close(() => resolve()));
     await rm(dir, { recursive: true, force: true });
+  });
+
+  it('aborts an in-flight task when the router sends task_cancel', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-task-cancel-'));
+    let chatStarted = false;
+    let chatRequestClosed = false;
+    const ollama = http.createServer((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/api/version') return res.end(JSON.stringify({ version: '0.21.0' }));
+      if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen2.5:0.5b' }] }));
+      if (req.url === '/api/ps') return res.end(JSON.stringify({ models: [] }));
+      if (req.url === '/api/chat') {
+        chatStarted = true;
+        req.on('close', () => {
+          chatRequestClosed = true;
+        });
+        return;
+      }
+      return res.end(JSON.stringify({}));
+    });
+    await new Promise<void>((resolve) => ollama.listen(0, '127.0.0.1', resolve));
+    const ollamaAddress = ollama.address();
+    if (!ollamaAddress || typeof ollamaAddress === 'string') throw new Error('missing ollama port');
+
+    let routerSocket: WebSocket | null = null;
+    const received: string[] = [];
+    server = http.createServer();
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (socket) => {
+      routerSocket = socket;
+      socket.on('message', (data) => {
+        const raw = data.toString();
+        received.push(raw);
+        const envelope = JSON.parse(raw) as { type: string };
+        if (envelope.type === 'register') {
+          socket.send(JSON.stringify({
+            type: 'task_start',
+            request_id: 'task-request-cancel',
+            payload: {
+              task_id: 'task-cancel-1',
+              kind: 'classify_message',
+              priority: 80,
+              model: 'qwen2.5:0.5b',
+              timeout_ms: 5000,
+              input: { text: 'Сколько стоит?', classes: ['sales', 'support', 'spam', 'other'] },
+              options: { temperature: 0, num_ctx: 1024, think: false, stream: false }
+            }
+          }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+
+    const config = loadConfig({
+      ROUTER_URL: `ws://127.0.0.1:${address.port}`,
+      CLIENT_DATA_DIR: dir,
+      OLLAMA_BASE_URL: `http://127.0.0.1:${ollamaAddress.port}`,
+      CLIENT_FAST_HEARTBEAT_MS: '1000',
+      CLIENT_NAME: 'task-cancel-client'
+    });
+    const connection = new RouterConnection(config, 'host-task-cancel-id', '0.1.0');
+    try {
+      connection.connect();
+      await waitFor(() => chatStarted && routerSocket !== null, 1500);
+      routerSocket?.send(JSON.stringify({
+        type: 'task_cancel',
+        request_id: 'task-cancel-request-1',
+        payload: { task_id: 'task-cancel-1', reason: 'Job canceled' }
+      }));
+      await waitFor(() => received.some((raw) => JSON.parse(raw).type === 'task_error'), 1500);
+    } finally {
+      connection.close();
+      await new Promise<void>((resolve) => ollama.close(() => resolve()));
+      await rm(dir, { recursive: true, force: true });
+    }
+
+    const outboundTypes = received.map((raw) => JSON.parse(raw).type);
+    const error = received.map((raw) => JSON.parse(raw)).find((item) => item.type === 'task_error');
+    expect(error.payload).toMatchObject({
+      task_id: 'task-cancel-1',
+      error: { code: 'task_canceled', message: 'Task canceled by router' }
+    });
+    expect(outboundTypes).not.toContain('task_result');
+    expect(chatRequestClosed).toBe(true);
   });
 
   it('runs enabled deploy_update commands and reports deploy_result', async () => {

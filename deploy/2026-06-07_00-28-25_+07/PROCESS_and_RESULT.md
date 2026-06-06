@@ -340,3 +340,31 @@ Still external/not locally provable:
 - Client user service must still be installed and verified on each target client host.
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
+
+Additional task cancellation handling hardening at 2026-06-07 04:39 +07:
+
+- Rechecked router-to-client task protocol against router `doc/IMPLEMENTATION_DETAILS.md` sections 8, 12, 23, 24 and 27.
+- Found that `task_cancel` was described in the protocol, but the client did not validate or handle it.
+- Found that in-flight Ollama requests could continue after a router job cancel.
+- Hardened client task cancellation:
+  - inbound router command validation now accepts `task_cancel`;
+  - active tasks are tracked with AbortControllers;
+  - `OllamaClient.chat` and `OllamaClient.pullModel` accept a parent abort signal while preserving timeout behavior;
+  - canceled tasks send `task_error` code `task_canceled`;
+  - canceled tasks do not send `task_result`.
+- Extended router-connection integration coverage with an in-flight fake Ollama request aborted by `task_cancel`.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted router-connection integration passed: 1 test file and 11 tests.
+- Router targeted cancellation tests passed: 2 test files and 11 tests.
+- Client `npm test` passed: 16 passed test files and 40 passed tests, plus 1 skipped local Ollama test file.
+- Router `npm test` passed: 35 passed test files and 91 passed tests, plus 3 skipped opt-in test files.
+- Router `npm run test:e2e` passed with this client build: classify, chat, import, batch, export and deploy with fake Ollama.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.
