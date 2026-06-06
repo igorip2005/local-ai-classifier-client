@@ -185,3 +185,32 @@ Additional systemd install helper work at 2026-06-07 03:08 +07:
 - Dry-run `npm run deploy:install-service` returned `warn` because local `.env` is missing, but the service artifact passed validation and no commands executed.
 - `npm test` passed: 14 test files and 33 tests, plus 1 skipped local Ollama test file.
 - Router `npm run test:e2e` passed with this client build.
+
+Additional operational runbook and real baseline verification at 2026-06-07 03:17 +07:
+
+- Added client `RUNBOOK.md` from the operational requirements in router `doc/CONCEPT.md` section 19 and `doc/IMPLEMENTATION_DETAILS.md` sections 7, 20, 21, 23, 24 and 25.
+- The runbook documents:
+  - installing a client host;
+  - installing the Linux user service through the safe dry-run/confirmed helper flow;
+  - owner pause/resume/status controls;
+  - Ollama health and model discovery;
+  - client recovery after crash/reboot;
+  - router connection debugging;
+  - classification failure debugging;
+  - trusted dev deploy agent configuration and command contract.
+- Added `tests/unit/runbook-docs.test.ts` to keep required sections and critical commands present.
+- Refreshed real `qwen2.5:0.5b` baseline on the current 40-case dataset.
+
+Verification:
+
+- Targeted runbook docs test passed: 12 unit test files and 22 tests.
+- Real Ollama classification baseline passed: 40/40 correct, contract_valid 40/40, avg latency 1514ms, max latency 4872ms; report written under `var/classification-baseline-smoke`.
+- `npm run build` passed.
+- `npm test` passed: 15 test files and 34 tests, plus 1 skipped local Ollama test file.
+- Router `npm run test:e2e` passed with this client build.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.
