@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
+import { evaluateKeywordBaseline } from '../../src/classification-baseline.js';
 import { classifyByKeywords } from '../../src/classification-rules.js';
 
 type DatasetItem = { text: string; expected_label: string };
@@ -7,13 +8,18 @@ type DatasetItem = { text: string; expected_label: string };
 describe('classification keyword baseline', () => {
   it('keeps baseline accuracy above MVP threshold', async () => {
     const dataset = await readDataset();
-    let correct = 0;
+    const report = evaluateKeywordBaseline(dataset, ['sales', 'support', 'spam', 'other'], 'tests/datasets/classification-v0.jsonl');
+    expect(report.accuracy).toBeGreaterThanOrEqual(0.9);
+    expect(report.contract_valid).toBe(report.total);
+    expect(report.cases).toHaveLength(dataset.length);
+  });
+
+  it('classifies individual guardrail examples deterministically', async () => {
+    const dataset = await readDataset();
     for (const item of dataset) {
       const result = classifyByKeywords(item.text, ['sales', 'support', 'spam', 'other']);
-      if (result?.label === item.expected_label) correct += 1;
+      expect(result?.label).toBe(item.expected_label);
     }
-    const accuracy = correct / dataset.length;
-    expect(accuracy).toBeGreaterThanOrEqual(0.9);
   });
 });
 

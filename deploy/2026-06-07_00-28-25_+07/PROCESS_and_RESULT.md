@@ -22,19 +22,24 @@ Timestamp: 2026-06-07 00:28:25 +07
 - Added fixed classification dataset `tests/datasets/classification-v0.jsonl`.
 - Added keyword guardrails for obvious sales/support/spam classifications before accepting weak model fallback.
 - Added fast classification baseline test over the fixed dataset.
-- Confirmed `npm run test:local-ollama` is not implemented yet: the script points to a missing `tests/integration/local-ollama.test.ts`.
+- Added reusable classification baseline report logic and `npm run classification:baseline`.
+- Added opt-in `tests/integration/local-ollama.test.ts`; it is skipped unless `RUN_LOCAL_OLLAMA=1`.
+- Fixed the spam keyword rule for Russian inflections such as `скидкой 90%`.
 
 ## Tests run
 
 ```bash
 npm run build
 npm test
+npm run classification:baseline
+npm run test:local-ollama
 ```
 
 Results:
 
 - `npm run build` passed.
-- `npm test` passed: 8 test files, 14 tests.
-- `npm run test:local-ollama` failed because no test file exists yet.
+- `npm test` passed: 8 test files and 15 tests, plus 1 skipped local Ollama test file.
+- `npm run classification:baseline` passed: 12/12 correct, contract_valid 12/12.
+- `npm run test:local-ollama` passed as skipped without `RUN_LOCAL_OLLAMA=1`.
 
 Client was also exercised by router `npm run test:e2e`, which starts the real client process against fake Ollama and the real router process, including classify, chat, import, batch and export.
