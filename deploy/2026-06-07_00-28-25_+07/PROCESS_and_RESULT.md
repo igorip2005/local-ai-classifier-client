@@ -110,3 +110,12 @@ Additional client service production readiness work at 2026-06-07 02:35 +07:
 - Client `npm test` passed: 11 test files and 24 tests, plus 1 skipped local Ollama test file.
 - Client `npm run deploy:preflight` returned `warn` and exit code `0` on this local server because `.env` is not present here while the service artifact is valid.
 - Client `npm run deploy:service-status` returned `fail` and exit code `1` on this local server because the systemd user service is not installed or active here.
+
+Additional audit at 2026-06-07 02:48 +07:
+
+- Compared the client implementation and tests with the original router implementation plan, especially client unit/integration test requirements.
+- Found that the repository does not contain a committed `.env.example`, while `README.md` instructs operators to create `.env` from it.
+- Found that local logging modes `none`, `metadata` and `full` are implemented through `writeLocalTaskLog`, but there is no focused test proving the privacy behavior of each mode.
+- Found that the metrics collector has no focused unit coverage for the `nvidia-smi` parser/fallback path; current tests cover availability policy with synthetic resource objects instead.
+- Found that explicit Ollama-unavailable heartbeat behavior is not proven. The current heartbeat reports OS/GPU availability, while Ollama unavailability can still affect register/capabilities discovery rather than being surfaced as stable heartbeat state.
+- Found that fake Ollama invalid JSON handling is not directly covered in `tests/integration/task-runner.test.ts`; classification fallback exists in normalization code, but the invalid-output integration path should be locked down.
