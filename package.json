@@ -9,6 +9,8 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/src/main.js",
     "classification:baseline": "tsx scripts/classification-baseline.ts",
+    "deploy:preflight": "tsx scripts/run-deploy-preflight.ts",
+    "deploy:service-status": "tsx scripts/run-deploy-service-status.ts",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",

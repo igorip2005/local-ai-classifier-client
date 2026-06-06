@@ -83,3 +83,30 @@ Additional dataset verification at 2026-06-07 01:50 +07:
 - `npm test` passed: 9 test files and 20 tests, plus 1 skipped local Ollama test file.
 - `CLASSIFICATION_REPORT_DIR=var/classification-baseline-smoke npm run classification:baseline` passed: 24/24 correct, contract_valid 24/24, and wrote a JSON report artifact.
 - `RUN_LOCAL_OLLAMA=1 CLASSIFICATION_MIN_ACCURACY=0.9 CLASSIFICATION_REPORT_DIR=var/classification-baseline-smoke npm run classification:baseline` passed: 24/24 correct, contract_valid 24/24, avg latency 1562ms, max latency 2601ms; it wrote `var/classification-baseline-smoke/2026-06-06T18-49-52-379Z_ollama_qwen2.5_0.5b.json`.
+
+Additional client service production readiness work at 2026-06-07 02:35 +07:
+
+- Added `src/deploy/preflight-service.ts`.
+- Added `src/deploy/service-status.ts`.
+- Added `npm run deploy:preflight`.
+- Added `npm run deploy:service-status`.
+- `deploy:preflight` validates:
+  - `package.json` start/build scripts;
+  - `deploy/local-ai-classifier.service` exists;
+  - `Type=simple`;
+  - `WorkingDirectory=/www/projects/local-ai-classifier-client`;
+  - `EnvironmentFile=/www/projects/local-ai-classifier-client/.env`;
+  - `ExecStart=/usr/bin/npm start`;
+  - `Restart=always`;
+  - `WantedBy=default.target`;
+  - safe systemd user install/status/journal commands.
+- `deploy:service-status` checks the installed systemd user service with:
+  - `systemctl --user is-enabled`;
+  - `systemctl --user is-active`;
+  - `systemctl --user show`.
+- Added unit tests for valid service preflight, invalid service/script failure, enabled/active service status and disabled/inactive service status.
+- Client `npm run build` passed.
+- Client targeted deploy readiness tests passed: 2 test files and 4 tests.
+- Client `npm test` passed: 11 test files and 24 tests, plus 1 skipped local Ollama test file.
+- Client `npm run deploy:preflight` returned `warn` and exit code `0` on this local server because `.env` is not present here while the service artifact is valid.
+- Client `npm run deploy:service-status` returned `fail` and exit code `1` on this local server because the systemd user service is not installed or active here.
