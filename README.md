@@ -15,6 +15,13 @@ npm start
 
 По умолчанию client подключается к `ws://127.0.0.1:3100/v1/hosts/connect` и использует локальную Ollama `http://127.0.0.1:11434`.
 
+Для production-like запуска `NODE_ENV=production` теперь требует явные host-настройки:
+
+- `ROUTER_URL` должен указывать на реальный router, не local default;
+- `CLIENT_NAME` должен идентифицировать конкретный host;
+- `CLIENT_BUILD_ID` должен быть build/git id, не `dev`;
+- если `CLIENT_DEPLOY_ENABLED=true`, нужно задать `CLIENT_DEPLOY_COMMAND`.
+
 ## Важные env-параметры
 
 ```env

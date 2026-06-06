@@ -25,7 +25,7 @@ const configSchema = z.object({
 export type ClientConfig = z.infer<typeof configSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ClientConfig {
-  return configSchema.parse({
+  const parsed = configSchema.parse({
     nodeEnv: env.NODE_ENV,
     routerUrl: env.ROUTER_URL,
     setupToken: env.SETUP_TOKEN || undefined,
@@ -45,6 +45,32 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ClientConfig {
     deployTimeoutMs: env.CLIENT_DEPLOY_TIMEOUT_MS,
     logLevel: env.LOG_LEVEL
   });
+  assertProductionConfig(parsed);
+  return parsed;
 }
 
 export const config = loadConfig();
+
+function assertProductionConfig(config: ClientConfig): void {
+  if (config.nodeEnv !== 'production') return;
+
+  const failures: string[] = [];
+  if (config.routerUrl === 'ws://127.0.0.1:3100/v1/hosts/connect') {
+    failures.push('ROUTER_URL must point to the production router in production');
+  }
+  if (config.clientName === 'local-test-client') {
+    failures.push('CLIENT_NAME must identify this host in production');
+  }
+  if (config.buildId === 'dev') {
+    failures.push('CLIENT_BUILD_ID must identify the deployed build in production');
+  }
+  if (config.setupToken && config.setupToken.length < 16) {
+    failures.push('SETUP_TOKEN must be at least 16 characters when provided in production');
+  }
+  if (config.deployEnabled && !config.deployCommand) {
+    failures.push('CLIENT_DEPLOY_COMMAND is required when trusted deploy is enabled in production');
+  }
+  if (failures.length > 0) {
+    throw new Error(`Invalid production client configuration: ${failures.join('; ')}`);
+  }
+}

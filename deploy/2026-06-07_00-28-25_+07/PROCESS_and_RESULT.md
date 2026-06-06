@@ -215,6 +215,33 @@ Still external/not locally provable:
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
 
+Additional client production config hardening at 2026-06-07 05:04 +07:
+
+- Rechecked client config against router `doc/IMPLEMENTATION_DETAILS.md` sections 15, 17, 20, 21, 24 and 25.
+- Found that `.env.example` used `NODE_ENV=production` with local development defaults, and `loadConfig` allowed those defaults in production.
+- Risk: a production client could accidentally run as `local-test-client`, report build id `dev`, connect to a local router URL, or enable trusted deploy without a command.
+- Fixed in the client repo:
+  - production config rejects the local default `ROUTER_URL`;
+  - production config rejects default `CLIENT_NAME=local-test-client`;
+  - production config rejects default `CLIENT_BUILD_ID=dev`;
+  - production config validates optional setup token length when provided;
+  - production config requires `CLIENT_DEPLOY_COMMAND` when `CLIENT_DEPLOY_ENABLED=true`;
+  - `.env.example` is now local-development by default and documents production replacements.
+- Updated README with production config requirements.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted config unit test passed: 1 test file and 4 tests.
+- Client `npm test` passed: 17 passed test files and 44 passed tests, plus 1 skipped local Ollama test file.
+- Router `npm run test:e2e` passed with this client build: classify, chat, import, batch, export and deploy with fake Ollama.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.
+
 Additional audit and logger redaction hardening at 2026-06-07 03:39 +07:
 
 - Rechecked client implementation against router `doc/IMPLEMENTATION_DETAILS.md` testing and privacy requirements.
