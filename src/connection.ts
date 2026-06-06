@@ -200,7 +200,8 @@ export class RouterConnection extends EventEmitter {
       if (controller.signal.aborted) {
         this.sendTaskError(task, 'task_canceled', 'Task canceled by router');
       } else {
-        this.sendTaskError(task, 'task_failed', error instanceof Error ? error.message : 'Task failed');
+        const safeError = safeTaskFailure(error);
+        this.sendTaskError(task, safeError.code, safeError.message);
       }
     } finally {
       this.taskControllers.delete(task.task_id);
@@ -247,4 +248,24 @@ export class RouterConnection extends EventEmitter {
 
 function signature(values: string[]): string {
   return values.join('|');
+}
+
+function safeTaskFailure(error: unknown): { code: string; message: string } {
+  // Router persists task_error payloads. IMPLEMENTATION_DETAILS.md sections 20
+  // and 22 require privacy-aware failure reporting, so never forward raw Ollama
+  // error bodies because they may include prompt or message text.
+  const message = error instanceof Error ? error.message : '';
+  if (message.startsWith('Model is not installed locally')) {
+    return { code: 'model_not_available', message: 'Requested model is not installed locally' };
+  }
+  if (message.startsWith('Unsupported task kind')) {
+    return { code: 'unsupported_task_kind', message: 'Unsupported task kind' };
+  }
+  if (message.startsWith('Ollama returned') || message.startsWith('Ollama pull returned')) {
+    return { code: 'ollama_request_failed', message: 'Ollama request failed' };
+  }
+  if (message.includes('fetch failed') || message.includes('aborted')) {
+    return { code: 'ollama_unavailable', message: 'Ollama is unavailable' };
+  }
+  return { code: 'task_failed', message: 'Task failed' };
 }

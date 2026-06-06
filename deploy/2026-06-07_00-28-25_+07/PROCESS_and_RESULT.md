@@ -215,6 +215,26 @@ Still external/not locally provable:
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
 
+Additional task failure privacy hardening at 2026-06-07 05:51 +07:
+
+- Rechecked client task error reporting against router `doc/IMPLEMENTATION_DETAILS.md` sections 20 and 22.
+- Found that `RouterConnection` forwarded raw task execution `error.message` in outbound `task_error`.
+- Risk: local Ollama/proxy failures can include upstream response body text, and that body may contain prompt/message text or secret-like values; router persists task errors.
+- Fixed in the client repo:
+  - task execution failures are mapped to stable safe codes/messages before being sent to the router;
+  - model availability errors use `model_not_available`;
+  - unsupported task kind errors use `unsupported_task_kind`;
+  - Ollama HTTP failures use `ollama_request_failed`;
+  - fetch/abort-style local availability failures use `ollama_unavailable`;
+  - generic unexpected failures use `task_failed`;
+  - cancellation still returns the explicit safe `task_canceled`.
+- Added integration coverage with a fake Ollama 500 response containing prompt text and a secret-like value; outbound `task_error` contains only the safe `ollama_request_failed` message.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted router-connection integration passed: 1 test file and 12 tests.
+
 Additional audit verification at 2026-06-07 05:41 +07:
 
 - Rechecked the client side of `doc/IMPLEMENTATION_DETAILS.md` sections 15, 24 and 25 while auditing unfinished/not-tested items.
