@@ -16,8 +16,15 @@ export async function runTask(config: ClientConfig, task: TaskStartPayload): Pro
   const body = buildClassifyChatBody(task);
   const raw = await ollama.chat(body, task.timeout_ms);
   const classes = task.input.classes ?? ['sales', 'support', 'spam', 'other'];
+  const normalized = normalizeModelResponse(raw, classes);
+  let finalRaw = raw;
+  let modelOutput = normalized.output;
+  if (!normalized.validJson) {
+    finalRaw = await ollama.chat(buildRepairChatBody(task.model, normalized.rawContent, task.input.text ?? '', classes), task.timeout_ms);
+    modelOutput = normalizeModelResponse(finalRaw, classes).output;
+  }
   const output = applyClassificationGuardrails(
-    normalizeModelResponse(raw, classes),
+    modelOutput,
     task.input.text ?? '',
     classes
   );
@@ -35,8 +42,8 @@ export async function runTask(config: ClientConfig, task: TaskStartPayload): Pro
     task_id: task.task_id,
     status: 'succeeded',
     output,
-    metering: extractMetering(raw, durationMs),
-    raw_model_response: raw
+    metering: extractMetering(finalRaw, durationMs),
+    raw_model_response: finalRaw === raw ? raw : { initial: raw, repair: finalRaw }
   };
   if (task.job_id) result.job_id = task.job_id;
   return result;
@@ -102,17 +109,49 @@ function buildPrompt(text: string, classes: string[]): string {
   ].join('\n');
 }
 
-function normalizeModelResponse(raw: Record<string, unknown>, classes: string[]): Classification {
-  const content = typeof raw.message === 'object' && raw.message
-    ? (raw.message as { content?: unknown }).content
-    : raw.response;
+function buildRepairChatBody(model: string, rawContent: string | null, text: string, classes: string[]): Record<string, unknown> {
+  return {
+    model,
+    stream: false,
+    think: false,
+    options: { temperature: 0, num_ctx: 1024 },
+    messages: [
+      { role: 'system', content: 'Repair the previous classifier output. Return only compact valid JSON. No markdown. No extra text.' },
+      {
+        role: 'user',
+        content: [
+          'Allowed labels:',
+          classes.join(', '),
+          'Required schema: {"label":"one_label","confidence":0.0,"reason":"short reason"}.',
+          `Original message: ${JSON.stringify(text)}`,
+          `Invalid model output: ${JSON.stringify(rawContent ?? '')}`
+        ].join('\n')
+      }
+    ]
+  };
+}
+
+function normalizeModelResponse(raw: Record<string, unknown>, classes: string[]): { output: Classification; validJson: boolean; rawContent: string | null } {
+  const content = extractModelContent(raw);
   const parsed = typeof content === 'string' ? parseJsonObject(content) : null;
-  if (!parsed) return { label: 'other', confidence: 0, reason: 'Model did not return valid JSON' };
+  if (!parsed) {
+    return {
+      output: { label: 'other', confidence: 0, reason: 'Model did not return valid JSON' },
+      validJson: false,
+      rawContent: typeof content === 'string' ? content : null
+    };
+  }
 
   const label = typeof parsed.label === 'string' && classes.includes(parsed.label) ? parsed.label : 'other';
   const confidence = typeof parsed.confidence === 'number' ? clamp(parsed.confidence, 0, 1) : 0;
   const reason = typeof parsed.reason === 'string' ? parsed.reason : '';
-  return { label, confidence, reason };
+  return { output: { label, confidence, reason }, validJson: true, rawContent: typeof content === 'string' ? content : null };
+}
+
+function extractModelContent(raw: Record<string, unknown>): unknown {
+  return typeof raw.message === 'object' && raw.message
+    ? (raw.message as { content?: unknown }).content
+    : raw.response;
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {

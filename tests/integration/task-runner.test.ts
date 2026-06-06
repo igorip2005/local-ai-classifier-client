@@ -43,13 +43,21 @@ describe('runTask', () => {
     expect(result.metering.prompt_tokens).toBe(20);
   });
 
-  it('falls back to other when fake Ollama returns invalid classification JSON', async () => {
+  it('repairs invalid fake Ollama classification JSON with a second strict request', async () => {
+    let chatCalls = 0;
     server = http.createServer((req, res) => {
       res.setHeader('content-type', 'application/json');
       if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen2.5:0.5b' }] }));
       if (req.url === '/api/ps') return res.end(JSON.stringify({ models: [] }));
       if (req.url === '/api/chat') {
-        return res.end(JSON.stringify({ message: { content: 'not valid json' } }));
+        chatCalls += 1;
+        return res.end(JSON.stringify({
+          message: {
+            content: chatCalls === 1
+              ? 'not valid json'
+              : '{"label":"support","confidence":0.77,"reason":"repair produced valid JSON"}'
+          }
+        }));
       }
     });
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
@@ -67,11 +75,14 @@ describe('runTask', () => {
       options: { temperature: 0, num_ctx: 1024, think: false, stream: false }
     });
 
+    expect(chatCalls).toBe(2);
     expect(result.output).toMatchObject({
-      label: 'other',
-      confidence: 0,
-      reason: 'Model did not return valid JSON'
+      label: 'support',
+      confidence: 0.77,
+      reason: 'repair produced valid JSON'
     });
+    expect(result.raw_model_response).toHaveProperty('initial');
+    expect(result.raw_model_response).toHaveProperty('repair');
   });
 
   it('runs chat completion tasks against fake Ollama', async () => {

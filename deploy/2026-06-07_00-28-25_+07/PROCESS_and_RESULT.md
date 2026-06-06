@@ -142,3 +142,14 @@ Additional client hardening work at 2026-06-07 02:57 +07:
   - integration subset: 3 passed test files and 12 tests, plus 1 skipped local Ollama test file.
 - Client `npm test` passed: 13 test files and 31 tests, plus 1 skipped local Ollama test file.
 - Client build passed again as part of router `npm run test:e2e`.
+
+Additional classification repair work at 2026-06-07 03:00 +07:
+
+- Added true retry/repair behavior for invalid classification JSON from Ollama.
+- If the first classifier call cannot be parsed as a JSON object, the client sends a second strict repair prompt with allowed labels, the original message and the invalid output.
+- The repaired valid JSON output is used for the task result; if repair also fails, the safe `other` fallback remains.
+- Updated `tests/integration/task-runner.test.ts` to prove two `/api/chat` calls happen for invalid JSON and that the repaired output is returned.
+- Client `npm run build` passed.
+- Client targeted task-runner integration passed: 3 passed test files, 12 tests, plus 1 skipped local Ollama test file.
+- Client `npm test` passed: 13 test files and 31 tests, plus 1 skipped local Ollama test file.
+- Router `npm run test:e2e` passed with the updated client build.
