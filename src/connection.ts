@@ -5,11 +5,13 @@ import type { ClientConfig } from './config.js';
 import { buildRegisterPayload } from './capabilities.js';
 import { collectResources } from './metrics.js';
 import { evaluateAvailability } from './availability.js';
-import type { Envelope, HeartbeatPayload } from './protocol.js';
+import type { Envelope, HeartbeatPayload, TaskErrorPayload, TaskResultPayload, TaskStartPayload } from './protocol.js';
+import { runTask } from './task-runner.js';
 
 export class RouterConnection extends EventEmitter {
   private socket: WebSocket | null = null;
   private fastTimer: NodeJS.Timeout | null = null;
+  private activeTasks = 0;
 
   constructor(
     private readonly config: ClientConfig,
@@ -56,8 +58,8 @@ export class RouterConnection extends EventEmitter {
     const payload: HeartbeatPayload = {
       host_id: this.hostId,
       ts: new Date().toISOString(),
-      status: availability.can_accept_tasks ? 'idle' : 'paused',
-      active_tasks: 0,
+      status: this.activeTasks > 0 ? 'busy' : availability.can_accept_tasks ? 'idle' : 'paused',
+      active_tasks: this.activeTasks,
       queue_depth: 0,
       models_loaded: [],
       resources: { ...resources, availability }
@@ -74,9 +76,42 @@ export class RouterConnection extends EventEmitter {
   private handleMessage(raw: string): void {
     try {
       const envelope = JSON.parse(raw) as Envelope;
+      if (envelope.type === 'task_start') {
+        void this.handleTaskStart(envelope.payload as TaskStartPayload);
+      }
       this.emit(envelope.type, envelope.payload);
     } catch (error) {
       this.emit('protocol_error', error);
     }
+  }
+
+  private async handleTaskStart(task: TaskStartPayload): Promise<void> {
+    if (this.activeTasks >= this.config.maxConcurrentTasks) {
+      this.sendTaskError(task, 'client_busy', 'Client is at max concurrency');
+      return;
+    }
+    this.activeTasks += 1;
+    try {
+      const result = await runTask(this.config, task);
+      this.sendTaskResult(result);
+    } catch (error) {
+      this.sendTaskError(task, 'task_failed', error instanceof Error ? error.message : 'Task failed');
+    } finally {
+      this.activeTasks -= 1;
+    }
+  }
+
+  private sendTaskResult(payload: TaskResultPayload): void {
+    this.send({ type: 'task_result', request_id: randomUUID(), payload });
+  }
+
+  private sendTaskError(task: TaskStartPayload, code: string, message: string): void {
+    const payload: TaskErrorPayload = {
+      task_id: task.task_id,
+      status: 'failed',
+      error: { code, message }
+    };
+    if (task.job_id) payload.job_id = task.job_id;
+    this.send({ type: 'task_error', request_id: randomUUID(), payload });
   }
 }

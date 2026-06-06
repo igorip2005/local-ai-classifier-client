@@ -38,6 +38,27 @@ export class OllamaClient {
     return tags.map((model) => ({ ...model, loaded: loaded.has(model.name) }));
   }
 
+  async chat(body: Record<string, unknown>, timeoutMs: number): Promise<Record<string, unknown>> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${this.baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      const text = await response.text();
+      const parsed = safeJson(text);
+      if (!response.ok) {
+        throw new Error(`Ollama returned ${response.status}: ${text.slice(0, 200)}`);
+      }
+      return parsed ?? { raw: text };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   private async tags(): Promise<Omit<HostModel, 'loaded'>[]> {
     const response = await fetch(`${this.baseUrl}/api/tags`);
     if (!response.ok) return [];
@@ -61,5 +82,13 @@ export class OllamaClient {
     } catch {
       return new Set();
     }
+  }
+}
+
+function safeJson(text: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
   }
 }
