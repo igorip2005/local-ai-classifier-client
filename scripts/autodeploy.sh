@@ -47,7 +47,7 @@ after_version="$(node -p "require('./package.json').version")"
 echo "after_version=$after_version"
 echo "after_commit=$after_commit"
 
-npm ci
+npm ci --include=dev
 npm run build
 if [[ "$RUN_TESTS" != "false" ]]; then
   npm test
