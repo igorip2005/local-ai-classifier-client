@@ -6,6 +6,7 @@ import { collectResources } from '../../src/metrics.js';
 
 const originalNvidiaSmiPath = process.env.NVIDIA_SMI_PATH;
 const originalLspciPath = process.env.LSPCI_PATH;
+const originalPowerShellPath = process.env.POWERSHELL_PATH;
 
 afterEach(() => {
   if (originalNvidiaSmiPath === undefined) {
@@ -17,6 +18,11 @@ afterEach(() => {
     delete process.env.LSPCI_PATH;
   } else {
     process.env.LSPCI_PATH = originalLspciPath;
+  }
+  if (originalPowerShellPath === undefined) {
+    delete process.env.POWERSHELL_PATH;
+  } else {
+    process.env.POWERSHELL_PATH = originalPowerShellPath;
   }
 });
 
@@ -45,6 +51,7 @@ describe('collectResources', () => {
   it('falls back to an empty GPU list when NVIDIA telemetry is unavailable', async () => {
     process.env.NVIDIA_SMI_PATH = '/missing/local-ai-classifier-nvidia-smi';
     process.env.LSPCI_PATH = '/missing/local-ai-classifier-lspci';
+    process.env.POWERSHELL_PATH = '/missing/local-ai-classifier-powershell';
 
     const resources = await collectResources();
     expect(resources.gpu).toEqual([]);
@@ -64,6 +71,25 @@ describe('collectResources', () => {
       expect(resources.gpu).toEqual([
         { name: 'NVIDIA Corporation GA104 [GeForce RTX 3060]', gpu_busy_pct: null, vram_used_mb: null, vram_total_mb: null, telemetry: 'lspci' },
         { name: 'Advanced Micro Devices, Inc. [AMD/ATI] Navi 23', gpu_busy_pct: null, vram_used_mb: null, vram_total_mb: null, telemetry: 'lspci' }
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses Windows CIM inventory when NVIDIA telemetry and Linux inventory are unavailable', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-windows-gpu-'));
+    try {
+      const bin = path.join(dir, 'powershell.exe');
+      await writeFile(bin, '#!/bin/sh\nprintf "[{\\"Name\\":\\"NVIDIA GeForce RTX 4070\\",\\"AdapterRAM\\":12884901888},{\\"Name\\":\\"Microsoft Basic Display Adapter\\",\\"AdapterRAM\\":0}]"\n');
+      await chmod(bin, 0o700);
+      process.env.NVIDIA_SMI_PATH = '/missing/local-ai-classifier-nvidia-smi';
+      process.env.LSPCI_PATH = '/missing/local-ai-classifier-lspci';
+      process.env.POWERSHELL_PATH = bin;
+
+      const resources = await collectResources();
+      expect(resources.gpu).toEqual([
+        { name: 'NVIDIA GeForce RTX 4070', gpu_busy_pct: null, vram_used_mb: null, vram_total_mb: 12288, telemetry: 'windows-cim' }
       ]);
     } finally {
       await rm(dir, { recursive: true, force: true });

@@ -31,7 +31,7 @@ async function collectNvidiaGpu(): Promise<Record<string, unknown>[]> {
     const gpu = await collectNvidiaGpuWith(candidate, fields);
     if (gpu) return gpu;
   }
-  return collectLinuxGpuInventory();
+  return collectGpuInventory();
 }
 
 async function collectNvidiaGpuWith(bin: string, fields: string[]): Promise<Record<string, unknown>[] | null> {
@@ -58,6 +58,12 @@ async function collectNvidiaGpuWith(bin: string, fields: string[]): Promise<Reco
   }
 }
 
+async function collectGpuInventory(): Promise<Record<string, unknown>[]> {
+  const linuxGpu = await collectLinuxGpuInventory();
+  if (linuxGpu.length) return linuxGpu;
+  return collectWindowsGpuInventory();
+}
+
 async function collectLinuxGpuInventory(): Promise<Record<string, unknown>[]> {
   if (os.platform() !== 'linux') return [];
   try {
@@ -79,6 +85,41 @@ async function collectLinuxGpuInventory(): Promise<Record<string, unknown>[]> {
   }
 }
 
+async function collectWindowsGpuInventory(): Promise<Record<string, unknown>[]> {
+  if (os.platform() !== 'win32' && !process.env.POWERSHELL_PATH) return [];
+  const command = [
+    'Get-CimInstance Win32_VideoController',
+    "| Where-Object { $_.Name -match 'NVIDIA|GeForce|RTX|Tesla|Quadro|AMD|Radeon|Intel.*(Arc|Graphics|Iris|UHD)' }",
+    '| Select-Object Name,AdapterRAM',
+    '| ConvertTo-Json -Compress'
+  ].join(' ');
+  try {
+    const { stdout } = await execFileAsync(
+      process.env.POWERSHELL_PATH || 'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', command],
+      { timeout: 3000 }
+    );
+    const parsed = parseJson(stdout.trim());
+    const items = Array.isArray(parsed) ? parsed : parsed && typeof parsed === 'object' ? [parsed] : [];
+    return items.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const record = item as Record<string, unknown>;
+      const name = typeof record.Name === 'string' ? record.Name.trim() : '';
+      if (!name || !/(nvidia|geforce|rtx|tesla|quadro|amd|radeon|intel.*(arc|graphics|iris|uhd))/i.test(name)) return [];
+      const adapterRamBytes = typeof record.AdapterRAM === 'number' ? record.AdapterRAM : Number(record.AdapterRAM);
+      return [{
+        name,
+        gpu_busy_pct: null,
+        vram_used_mb: null,
+        vram_total_mb: Number.isFinite(adapterRamBytes) && adapterRamBytes > 0 ? Math.round(adapterRamBytes / 1024 / 1024) : null,
+        telemetry: 'windows-cim'
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
+
 function cpuLoadPct(load: number | undefined, cores: number): number | null {
   if (!Number.isFinite(load) || !Number.isFinite(cores) || cores <= 0) return null;
   return round(Math.min(100, (Number(load) / cores) * 100));
@@ -91,4 +132,13 @@ function round(value: number): number {
 function numberOrNull(value: string | undefined): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseJson(value: string): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
