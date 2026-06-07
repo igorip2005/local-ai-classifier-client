@@ -58,4 +58,45 @@ describe('client deploy reports', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it('redacts secret-like payload values when listing reports', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-report-redaction-'));
+    try {
+      await writeClientDeployReport('production-readiness', {
+        status: 'fail',
+        summary: {
+          host_id: 'client-1',
+          artifact_url: 'https://artifact.example/client.tgz?token=raw-url-token',
+          nested: {
+            message: 'Authorization: Bearer raw-bearer-token',
+            setup_token: 'raw-setup-token'
+          }
+        }
+      }, {
+        reportDir: dir,
+        now: new Date('2026-06-07T07:12:00.000Z')
+      });
+
+      const reports = await listClientDeployReports({ reportDir: dir, kind: 'production-readiness' });
+      const serialized = JSON.stringify(reports);
+
+      expect(serialized).toContain('client-1');
+      expect(serialized).not.toContain('raw-url-token');
+      expect(serialized).not.toContain('raw-bearer-token');
+      expect(serialized).not.toContain('raw-setup-token');
+      expect(reports.items[0]?.payload).toMatchObject({
+        status: 'fail',
+        summary: {
+          host_id: 'client-1',
+          artifact_url: '[redacted]',
+          nested: {
+            message: 'Authorization: Bearer [redacted]',
+            setup_token: '[redacted]'
+          }
+        }
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

@@ -257,6 +257,25 @@ Verification:
 - Client `npm test` passed: 19 test files and 54 tests passed, plus 1 skipped opt-in local Ollama test file.
 - Client `git diff --check` passed.
 
+Additional client deploy report output redaction hardening at 2026-06-07 07:01 +07:
+
+- Rechecked the new client `npm run deploy:reports` output path.
+- Found that private report artifacts are durable audit files, but report listing returned payload values directly.
+- Risk: an older/manual client report artifact could contain a signed artifact URL, bearer token, setup token or API key and print it through `deploy:reports`.
+- Fixed in the client repo:
+  - added recursive payload redaction in `src/deploy/report-service.ts` when reports are read/listed;
+  - sensitive keys and secret-bearing strings are redacted before report payloads are returned;
+  - signed URL query strings are redacted;
+  - private report files remain unchanged as durable audit sources; only CLI/list output is sanitized;
+  - added unit coverage proving old/manual report payloads with raw signed URLs and token-like values are redacted in report listings.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted deploy report tests passed: 1 test file and 3 tests.
+- Client `npm test` passed: 19 test files and 55 tests passed, plus 1 skipped opt-in local Ollama test file.
+- Client `git diff --check` passed.
+
 Additional client deploy/status output redaction hardening at 2026-06-07 06:36 +07:
 
 - Rechecked client production service tooling against router `doc/IMPLEMENTATION_DETAILS.md` sections 20, 23, 24, 25 and 27.
