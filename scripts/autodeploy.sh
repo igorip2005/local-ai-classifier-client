@@ -50,7 +50,7 @@ echo "after_commit=$after_commit"
 npm ci --include=dev
 npm run build
 if [[ "$RUN_TESTS" != "false" ]]; then
-  npm test
+  NODE_ENV=test npm test
 fi
 
 echo "autodeploy checks passed"
