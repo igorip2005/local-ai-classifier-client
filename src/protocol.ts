@@ -33,6 +33,8 @@ export type HostModel = {
 
 export type HeartbeatPayload = {
   host_id: string;
+  client_version: string;
+  build_id?: string;
   ts: string;
   status: 'idle' | 'busy' | 'paused';
   active_tasks: number;
@@ -90,8 +92,8 @@ export type TaskCancelPayload = {
 export type DeployUpdatePayload = {
   deploy_id: string;
   target_version: string;
-  artifact_url: string;
-  artifact_sha256: string;
+  artifact_url?: string;
+  artifact_sha256?: string;
 };
 
 export type DeployResultPayload = {
@@ -169,8 +171,10 @@ const taskStartPayloadSchema = z.discriminatedUnion('kind', [
 const deployUpdatePayloadSchema = z.object({
   deploy_id: z.string().min(1),
   target_version: z.string().min(1),
-  artifact_url: z.string().url(),
-  artifact_sha256: z.string().regex(/^[a-f0-9]{64}$/i)
+  artifact_url: z.string().url().optional(),
+  artifact_sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional()
+}).refine((value) => (value.artifact_url && value.artifact_sha256) || (!value.artifact_url && !value.artifact_sha256), {
+  message: 'artifact_url and artifact_sha256 must be provided together'
 });
 
 const modelInstallPayloadSchema = z.object({

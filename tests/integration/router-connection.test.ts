@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import http from 'node:http';
 import os from 'node:os';
@@ -42,7 +42,9 @@ describe('RouterConnection', () => {
     await rm(dir, { recursive: true, force: true });
 
     expect(JSON.parse(received[0] ?? '{}').type).toBe('register');
-    expect(JSON.parse(received[1] ?? '{}').type).toBe('heartbeat');
+    const heartbeat = JSON.parse(received[1] ?? '{}');
+    expect(heartbeat.type).toBe('heartbeat');
+    expect(heartbeat.payload).toMatchObject({ client_version: '0.1.0', build_id: 'dev' });
   });
 
   it('reconnects with backoff after router closes the socket', async () => {
@@ -668,6 +670,61 @@ describe('RouterConnection', () => {
     }), 1500);
     connection.close();
     await new Promise<void>((resolve) => artifactServer.close(() => resolve()));
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('runs command-only deploy_update for git autodeploy and reports current package version', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-git-deploy-ws-'));
+    const marker = path.join(dir, 'git-deploy-marker.json');
+    const command = path.join(dir, 'autodeploy.sh');
+    await writeFile(command, [
+      '#!/bin/sh',
+      `printf '{"artifact":"%s","target":"%s","deploy":"%s"}' "$1" "$2" "$3" > "${marker}"`,
+      ''
+    ].join('\n'));
+    await chmod(command, 0o700);
+    const received: string[] = [];
+    server = http.createServer();
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (socket) => {
+      socket.on('message', (data) => {
+        const raw = data.toString();
+        received.push(raw);
+        const envelope = JSON.parse(raw) as { type: string };
+        if (envelope.type === 'register') {
+          socket.send(JSON.stringify({
+            type: 'deploy_update',
+            request_id: 'deploy-request-1',
+            payload: {
+              deploy_id: 'deploy-git-1',
+              target_version: 'git-main'
+            }
+          }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+
+    const config = loadConfig({
+      ROUTER_URL: `ws://127.0.0.1:${address.port}`,
+      CLIENT_DATA_DIR: dir,
+      CLIENT_DEPLOY_ENABLED: 'true',
+      CLIENT_DEPLOY_COMMAND: command,
+      CLIENT_NAME: 'git-deploy-client'
+    });
+    const connection = new RouterConnection(config, 'host-git-deploy-id', '0.1.0');
+    connection.connect();
+
+    await waitFor(() => received.some((raw) => {
+      const envelope = JSON.parse(raw);
+      return envelope.type === 'deploy_result' && envelope.payload.status === 'succeeded';
+    }), 1500);
+    connection.close();
+    const deployResult = received.map((raw) => JSON.parse(raw)).find((item) => item.type === 'deploy_result');
+    expect(deployResult.payload.client_version).toBe('0.2.0');
+    expect(JSON.parse(await readFile(marker, 'utf8'))).toMatchObject({ artifact: '', target: 'git-main', deploy: 'deploy-git-1' });
     await rm(dir, { recursive: true, force: true });
   });
 

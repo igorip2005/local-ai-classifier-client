@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { ClientConfig } from './config.js';
@@ -17,7 +17,7 @@ type RollbackManifest = {
   previous_build_id: string;
   target_version: string;
   artifact_path: string;
-  artifact_sha256: string;
+  artifact_sha256: string | null;
   rollback_note: string;
 };
 
@@ -37,26 +37,19 @@ export async function runDeployUpdate(
   try {
     if (!config.deployEnabled) throw new SafeDeployError('deploy_disabled', 'Client deploy is disabled');
     if (!config.deployCommand) throw new SafeDeployError('deploy_config_invalid', 'CLIENT_DEPLOY_COMMAND is required when deploy is enabled');
-    const deployCommand = config.deployCommand;
-    const bytes = await downloadArtifact(payload.artifact_url, config.deployTimeoutMs);
-    const actualSha = createHash('sha256').update(bytes).digest('hex');
-    if (actualSha !== payload.artifact_sha256.toLowerCase()) {
-      throw new SafeDeployError('artifact_checksum_mismatch', 'Artifact checksum mismatch');
-    }
     const deployDir = path.join(config.clientDataDir, 'deploy');
     await mkdir(deployDir, { recursive: true, mode: 0o700 });
-    const artifactPath = path.join(deployDir, `${payload.deploy_id}.artifact`);
-    await writeFile(artifactPath, bytes, { mode: 0o600 });
-    const rollbackManifestPath = await writeRollbackManifest(deployDir, config, clientVersion, artifactPath, payload);
-    await runDeployCommand(deployCommand, config.deployTimeoutMs, {
-      artifactPath,
+    const artifact = await prepareArtifact(deployDir, payload, config.deployTimeoutMs);
+    const rollbackManifestPath = await writeRollbackManifest(deployDir, config, clientVersion, artifact.path, artifact.sha256, payload);
+    await runDeployCommand(config.deployCommand, config.deployTimeoutMs, {
+      artifactPath: artifact.path,
       targetVersion: payload.target_version,
       deployId: payload.deploy_id,
       previousClientVersion: clientVersion,
       previousBuildId: config.buildId,
       rollbackManifestPath
     });
-    return { deploy_id: payload.deploy_id, host_id: hostId, status: 'succeeded', client_version: clientVersion };
+    return { deploy_id: payload.deploy_id, host_id: hostId, status: 'succeeded', client_version: await readPackageVersion(clientVersion) };
   } catch (error) {
     const safeError = toSafeDeployError(error);
     return {
@@ -70,6 +63,25 @@ export async function runDeployUpdate(
       }
     };
   }
+}
+
+async function prepareArtifact(
+  deployDir: string,
+  payload: DeployUpdatePayload,
+  timeoutMs: number
+): Promise<{ path: string; sha256: string | null }> {
+  if (!payload.artifact_url && !payload.artifact_sha256) return { path: '', sha256: null };
+  if (!payload.artifact_url || !payload.artifact_sha256) {
+    throw new SafeDeployError('artifact_input_invalid', 'artifact_url and artifact_sha256 must be provided together');
+  }
+  const bytes = await downloadArtifact(payload.artifact_url, timeoutMs);
+  const actualSha = createHash('sha256').update(bytes).digest('hex');
+  if (actualSha !== payload.artifact_sha256.toLowerCase()) {
+    throw new SafeDeployError('artifact_checksum_mismatch', 'Artifact checksum mismatch');
+  }
+  const artifactPath = path.join(deployDir, `${payload.deploy_id}.artifact`);
+  await writeFile(artifactPath, bytes, { mode: 0o600 });
+  return { path: artifactPath, sha256: actualSha };
 }
 
 async function downloadArtifact(url: string, timeoutMs: number): Promise<Buffer> {
@@ -126,6 +138,7 @@ async function writeRollbackManifest(
   config: ClientConfig,
   clientVersion: string,
   artifactPath: string,
+  artifactSha256: string | null,
   payload: DeployUpdatePayload
 ): Promise<string> {
   // IMPLEMENTATION_DETAILS.md section 25 requires trusted clients to retain the
@@ -141,7 +154,7 @@ async function writeRollbackManifest(
     previous_build_id: config.buildId,
     target_version: payload.target_version,
     artifact_path: artifactPath,
-    artifact_sha256: payload.artifact_sha256.toLowerCase(),
+    artifact_sha256: artifactSha256,
     rollback_note: 'Use previous_client_version and previous_build_id to select the previous trusted client package or artifact for manual rollback.'
   };
   const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
@@ -150,6 +163,15 @@ async function writeRollbackManifest(
   await writeFile(perDeployPath, serialized, { mode: 0o600 });
   await writeFile(latestPath, serialized, { mode: 0o600 });
   return latestPath;
+}
+
+async function readPackageVersion(fallback: string): Promise<string> {
+  try {
+    const packageJson = JSON.parse(await readFile(path.join(process.cwd(), 'package.json'), 'utf8')) as { version?: unknown };
+    return typeof packageJson.version === 'string' && packageJson.version ? packageJson.version : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function toSafeDeployError(error: unknown): SafeDeployError {

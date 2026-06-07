@@ -1,6 +1,6 @@
 {
   "name": "local-ai-classifier-client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local host agent for Local AI Classifier Router and Ollama.",
   "type": "module",
   "main": "dist/src/main.js",
@@ -13,6 +13,7 @@
     "deploy:install-service": "tsx scripts/run-deploy-install-service.ts",
     "deploy:service-status": "tsx scripts/run-deploy-service-status.ts",
     "deploy:reports": "tsx scripts/run-deploy-reports.ts",
+    "deploy:autodeploy": "scripts/autodeploy.sh",
     "production:readiness": "tsx scripts/run-production-readiness.ts",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",

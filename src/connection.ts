@@ -142,6 +142,8 @@ export class RouterConnection extends EventEmitter {
       : {};
     const payload: HeartbeatPayload = {
       host_id: this.hostId,
+      client_version: this.version,
+      build_id: this.config.buildId,
       ts: new Date().toISOString(),
       status: this.activeTasks > 0 ? 'busy' : availability.can_accept_tasks ? 'idle' : 'paused',
       active_tasks: this.activeTasks,

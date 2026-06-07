@@ -33,14 +33,16 @@ describe('loadConfig', () => {
     })).toThrow(/Invalid production client configuration/);
   });
 
-  it('rejects production trusted deploy when deploy command is missing', () => {
-    expect(() => loadConfig({
+  it('uses the built-in autodeploy script when trusted deploy has no explicit command', () => {
+    const config = loadConfig({
       NODE_ENV: 'production',
       ROUTER_URL: 'wss://router.example.test/v1/hosts/connect',
       CLIENT_NAME: 'office-gpu-01',
       CLIENT_BUILD_ID: 'git-sha-1234567890',
       CLIENT_DEPLOY_ENABLED: 'true'
-    })).toThrow(/CLIENT_DEPLOY_COMMAND is required/);
+    });
+
+    expect(config.deployCommand).toBe('/www/projects/local-ai-classifier-client/scripts/autodeploy.sh');
   });
 
   it('accepts production startup with explicit operational identity', () => {
