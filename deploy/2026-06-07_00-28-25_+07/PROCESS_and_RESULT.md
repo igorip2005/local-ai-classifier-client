@@ -215,6 +215,66 @@ Still external/not locally provable:
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
 
+## Final audit snapshot — 2026-06-07 07:10 +07
+
+User asked to re-find what is not done normally and what is not tested against the initial project documentation.
+
+Checked router `doc/CONCEPT.md`, router `doc/IMPLEMENTATION_DETAILS.md`, current client package scripts and test inventory, client runbook/readiness tooling, and fail-closed client production readiness commands.
+
+Result:
+
+- Client skeleton and local behavior required for MVP are implemented: persistent `host_id`, Ollama health/model discovery, WebSocket register/heartbeat, capabilities updates, owner pause/status controls, local logging modes, task execution, cancellation, model pull, deploy command handling and production service helpers.
+- No new local code-only missing phase was identified in this audit.
+- Remaining client production gap is target-host evidence, not local source-code presence.
+
+Commands run and observed:
+
+- Client `npm run production:readiness` returned expected exit code `1` with status `fail` and wrote a private production-readiness report artifact.
+- Client `npm run deploy:service-status` returned expected exit code `1` with status `fail`; `local-ai-classifier.service` is not enabled/active locally.
+
+Still not verified:
+
+- Target client host `.env` exists and contains real production values.
+- `local-ai-classifier.service` is installed, enabled and active on each real client host.
+- Trusted deploy acceptance has not been run against a configured external trusted host.
+- Distributed GPU acceptance depends on router-side external 2+ GPU clients.
+- Classification quality needs ongoing expansion from real production confusion cases beyond the current fixed dataset.
+
+No runtime code changed in this audit snapshot.
+
+## Audit snapshot — 2026-06-07 07:10 +07
+
+User asked to re-find what is not done normally and what is not tested against the initial project documentation.
+
+Checked:
+
+- router `doc/CONCEPT.md`;
+- router `doc/IMPLEMENTATION_DETAILS.md`, especially client skeleton, owner controls, deploy, acceptance and Definition of Done sections;
+- current client package scripts and test inventory;
+- client runbook/readiness tooling;
+- fail-closed client production readiness commands.
+
+Result:
+
+- Client skeleton and local behavior required for MVP are implemented: persistent `host_id`, Ollama health/model discovery, WebSocket register/heartbeat, capabilities updates, owner pause/status controls, local logging modes, task execution, cancellation, model pull, deploy command handling and production service helpers.
+- No new local code-only missing phase was identified in this audit.
+- Remaining client production gap is target-host evidence, not local source-code presence.
+
+Commands run and observed:
+
+- Client `npm run production:readiness` returned expected exit code `1` with status `fail` and wrote a private production-readiness report artifact.
+- Client `npm run deploy:service-status` returned expected exit code `1` with status `fail`; `local-ai-classifier.service` is not enabled/active locally.
+
+Still not verified:
+
+- Target client host `.env` exists and contains real production values.
+- `local-ai-classifier.service` is installed, enabled and active on each real client host.
+- Trusted deploy acceptance has not been run against a configured external trusted host.
+- Distributed GPU acceptance depends on router-side external 2+ GPU clients.
+- Classification quality needs ongoing expansion from real production confusion cases beyond the current fixed dataset.
+
+No runtime code changed in this audit snapshot.
+
 Additional client production readiness gate at 2026-06-07 06:46 +07:
 
 - Rechecked the remaining client production gap from router `doc/gaps.md`: client systemd user service is not proven installed/enabled on target client hosts.
