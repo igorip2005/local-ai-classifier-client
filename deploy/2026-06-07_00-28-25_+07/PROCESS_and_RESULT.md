@@ -242,6 +242,30 @@ Still not verified:
 
 No runtime code changed in this audit snapshot.
 
+## Classification baseline CLI failure redaction — 2026-06-07 07:26 +07
+
+Rechecked `npm run classification:baseline` against router `doc/IMPLEMENTATION_DETAILS.md` sections 21, 24 and 27.
+
+Found:
+
+- The baseline command no longer prints `cases[].text` by default, but top-level command failures were still unhandled.
+- Dataset read failures, config validation failures or Ollama/proxy failures could print raw Node stack traces to stderr.
+- Risk: a failed command could expose a signed dataset URL, token-like value or copied environment text before the normal summary-only baseline output exists.
+
+Fixed in the client repo:
+
+- Wrapped the baseline command in a top-level safe failure handler.
+- Failure output is now a short JSON object with `status: "fail"` and redacted error name/message.
+- Redaction uses the existing deploy output redaction helper for signed URL query strings, bearer tokens and token-like fields.
+- Added CLI regression coverage for a failing dataset path containing a signed URL token.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted classification CLI/quality tests passed: 2 test files and 5 tests.
+- Client `npm test` passed: 20 passed test files and 57 passed tests, plus 1 skipped opt-in local Ollama test file.
+- Client `git diff --check` passed.
+
 ## Audit snapshot — 2026-06-07 07:10 +07
 
 User asked to re-find what is not done normally and what is not tested against the initial project documentation.
