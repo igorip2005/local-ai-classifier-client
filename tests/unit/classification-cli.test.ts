@@ -6,7 +6,7 @@ const execFile = promisify(execFileCallback);
 
 describe('classification baseline CLI', () => {
   it('redacts top-level failure output before printing to stderr', async () => {
-    const result = await execFile('npx', ['tsx', 'scripts/classification-baseline.ts'], {
+    const result = await execFile('npm', ['exec', '--', 'tsx', 'scripts/classification-baseline.ts'], {
       cwd: process.cwd(),
       env: {
         ...process.env,
