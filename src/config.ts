@@ -16,7 +16,7 @@ const configSchema = z.object({
   fullHeartbeatMs: z.coerce.number().int().positive().default(15000),
   clientDataDir: z.string().min(1).default('/www/projects/local-ai-classifier-client/var'),
   statusPort: z.coerce.number().int().min(0).max(65535).default(0),
-  deployEnabled: envBoolean(false),
+  deployEnabled: envBoolean(true),
   deployCommand: z.string().default('/www/projects/local-ai-classifier-client/scripts/autodeploy.sh'),
   deployTimeoutMs: z.coerce.number().int().positive().default(120_000),
   logLevel: z.string().default('info')

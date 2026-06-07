@@ -1,11 +1,10 @@
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { config } from './config.js';
 import { getOrCreateHostId } from './identity.js';
 import { RouterConnection } from './connection.js';
 import { logger, safeLogError } from './logger.js';
 import { readControlStatus, setManualEnabled } from './control.js';
 import { StatusServer } from './status-server.js';
+import { readRuntimeVersion } from './version.js';
 
 const command = process.argv[2];
 if (command === 'pause' || command === 'resume' || command === 'status') {
@@ -13,7 +12,7 @@ if (command === 'pause' || command === 'resume' || command === 'status') {
   process.exit(0);
 }
 
-const version = await readVersion();
+const version = await readRuntimeVersion();
 const hostId = await getOrCreateHostId(config.clientDataDir);
 const connection = new RouterConnection(config, hostId, version);
 const statusServer = new StatusServer(config, hostId, version);
@@ -31,11 +30,6 @@ function shutdown(signal: string): void {
   statusServer.stop();
   connection.close();
   process.exit(0);
-}
-
-async function readVersion(): Promise<string> {
-  const packageJson = JSON.parse(await readFile(path.join(process.cwd(), 'package.json'), 'utf8')) as { version: string };
-  return packageJson.version;
 }
 
 async function runControlCommand(commandName: string): Promise<void> {

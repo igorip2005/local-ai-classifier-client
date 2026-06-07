@@ -722,7 +722,7 @@ describe('RouterConnection', () => {
     }), 1500);
     connection.close();
     const deployResult = received.map((raw) => JSON.parse(raw)).find((item) => item.type === 'deploy_result');
-    expect(deployResult.payload.client_version).toBe('0.2.2');
+    expect(deployResult.payload.client_version).toMatch(/^0\.2\.2\.\d+$/);
     expect(JSON.parse(await readFile(marker, 'utf8'))).toMatchObject({ artifact: '', target: '', deploy: 'deploy-git-1' });
     await rm(dir, { recursive: true, force: true });
   });

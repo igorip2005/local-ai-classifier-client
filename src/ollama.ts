@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { readFile } from 'node:fs/promises';
+import os from 'node:os';
 import type { HostModel } from './protocol.js';
 
 const tagsSchema = z.object({
@@ -23,14 +25,18 @@ export class OllamaClient {
   constructor(private readonly baseUrl: string) {}
 
   async health(): Promise<OllamaHealth> {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/version`);
-      if (!response.ok) return { ok: false, version: null };
-      const body = await response.json() as { version?: string };
-      return { ok: true, version: body.version ?? null };
-    } catch {
-      return { ok: false, version: null };
+    for (const baseUrl of await this.candidateBaseUrls()) {
+      try {
+        const response = await fetch(`${baseUrl}/api/version`);
+        if (!response.ok) continue;
+        const body = await response.json() as { version?: string };
+        return { ok: true, version: body.version ?? null };
+      } catch {
+        // Try the next candidate. WSL clients often need the Windows host gateway
+        // instead of localhost when Ollama runs on the Windows side.
+      }
     }
+    return { ok: false, version: null };
   }
 
   async discoverModels(): Promise<HostModel[]> {
@@ -80,38 +86,71 @@ export class OllamaClient {
   }
 
   private async tags(): Promise<Omit<HostModel, 'loaded'>[]> {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
-      if (!response.ok) return [];
-      const parsed = tagsSchema.parse(await response.json());
-      return parsed.models.map((model) => {
-        const output: Omit<HostModel, 'loaded'> = { name: model.name };
-        if (model.size !== undefined) output.size_bytes = model.size;
-        if (model.details?.family) output.family = model.details.family;
-        if (model.details?.parameter_size) output.parameter_size = model.details.parameter_size;
-        if (model.details?.quantization_level) output.quantization = model.details.quantization_level;
-        return output;
-      });
-    } catch {
-      return [];
+    for (const baseUrl of await this.candidateBaseUrls()) {
+      try {
+        const response = await fetch(`${baseUrl}/api/tags`);
+        if (!response.ok) continue;
+        const parsed = tagsSchema.parse(await response.json());
+        return parsed.models.map((model) => {
+          const output: Omit<HostModel, 'loaded'> = { name: model.name };
+          if (model.size !== undefined) output.size_bytes = model.size;
+          if (model.details?.family) output.family = model.details.family;
+          if (model.details?.parameter_size) output.parameter_size = model.details.parameter_size;
+          if (model.details?.quantization_level) output.quantization = model.details.quantization_level;
+          return output;
+        });
+      } catch {
+        // Try the next candidate.
+      }
     }
+    return [];
   }
 
   private async loadedModelNames(): Promise<Set<string>> {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/ps`);
-      if (!response.ok) return new Set();
-      const parsed = psSchema.parse(await response.json());
-      return new Set(parsed.models.map((model) => model.name));
-    } catch {
-      return new Set();
+    for (const baseUrl of await this.candidateBaseUrls()) {
+      try {
+        const response = await fetch(`${baseUrl}/api/ps`);
+        if (!response.ok) continue;
+        const parsed = psSchema.parse(await response.json());
+        return new Set(parsed.models.map((model) => model.name));
+      } catch {
+        // Try the next candidate.
+      }
     }
+    return new Set();
+  }
+
+  private async candidateBaseUrls(): Promise<string[]> {
+    const candidates = [this.baseUrl];
+    if (isWsl()) {
+      const gateway = await wslHostGateway();
+      if (gateway) candidates.push(`http://${gateway}:11434`);
+      candidates.push('http://host.docker.internal:11434');
+    }
+    return Array.from(new Set(candidates));
   }
 }
 
 function safeJson(text: string): Record<string, unknown> | null {
   try {
     return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function isWsl(): boolean {
+  return os.platform() === 'linux' && (
+    os.release().toLowerCase().includes('microsoft')
+    || Boolean(process.env.WSL_DISTRO_NAME)
+  );
+}
+
+async function wslHostGateway(): Promise<string | null> {
+  try {
+    const resolv = await readFile('/etc/resolv.conf', 'utf8');
+    const match = resolv.match(/^nameserver\s+(\S+)/m);
+    return match?.[1] ?? null;
   } catch {
     return null;
   }

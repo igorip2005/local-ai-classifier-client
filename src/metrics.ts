@@ -26,7 +26,7 @@ async function collectNvidiaGpu(): Promise<Record<string, unknown>[]> {
   const fields = ['name', 'utilization.gpu', 'memory.used', 'memory.total', 'temperature.gpu', 'power.draw', 'power.limit'];
   const candidates = process.env.NVIDIA_SMI_PATH
     ? [process.env.NVIDIA_SMI_PATH]
-    : ['nvidia-smi', '/usr/bin/nvidia-smi', '/usr/local/cuda/bin/nvidia-smi'];
+    : ['nvidia-smi', '/usr/bin/nvidia-smi', '/usr/local/cuda/bin/nvidia-smi', '/usr/lib/wsl/lib/nvidia-smi'];
   for (const candidate of candidates) {
     const gpu = await collectNvidiaGpuWith(candidate, fields);
     if (gpu) return gpu;
@@ -86,7 +86,7 @@ async function collectLinuxGpuInventory(): Promise<Record<string, unknown>[]> {
 }
 
 async function collectWindowsGpuInventory(): Promise<Record<string, unknown>[]> {
-  if (os.platform() !== 'win32' && !process.env.POWERSHELL_PATH) return [];
+  if (os.platform() !== 'win32' && !process.env.POWERSHELL_PATH && !isWsl()) return [];
   const command = [
     'Get-CimInstance Win32_VideoController',
     "| Where-Object { $_.Name -match 'NVIDIA|GeForce|RTX|Tesla|Quadro|AMD|Radeon|Intel.*(Arc|Graphics|Iris|UHD)' }",
@@ -118,6 +118,13 @@ async function collectWindowsGpuInventory(): Promise<Record<string, unknown>[]> 
   } catch {
     return [];
   }
+}
+
+function isWsl(): boolean {
+  return os.platform() === 'linux' && (
+    os.release().toLowerCase().includes('microsoft')
+    || Boolean(process.env.WSL_DISTRO_NAME)
+  );
 }
 
 function cpuLoadPct(load: number | undefined, cores: number): number | null {

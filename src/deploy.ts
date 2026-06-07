@@ -5,6 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { ClientConfig } from './config.js';
 import type { DeployResultPayload, DeployUpdatePayload } from './protocol.js';
+import { readRuntimeVersion } from './version.js';
 
 const execFileAsync = promisify(execFileCallback);
 
@@ -49,7 +50,7 @@ export async function runDeployUpdate(
       previousBuildId: config.buildId,
       rollbackManifestPath
     });
-    return { deploy_id: payload.deploy_id, host_id: hostId, status: 'succeeded', client_version: await readPackageVersion(clientVersion) };
+    return { deploy_id: payload.deploy_id, host_id: hostId, status: 'succeeded', client_version: await readRuntimeVersion(clientVersion) };
   } catch (error) {
     const safeError = toSafeDeployError(error);
     return {
@@ -165,14 +166,6 @@ async function writeRollbackManifest(
   return latestPath;
 }
 
-async function readPackageVersion(fallback: string): Promise<string> {
-  try {
-    const packageJson = JSON.parse(await readFile(path.join(process.cwd(), 'package.json'), 'utf8')) as { version?: unknown };
-    return typeof packageJson.version === 'string' && packageJson.version ? packageJson.version : fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 function toSafeDeployError(error: unknown): SafeDeployError {
   if (error instanceof SafeDeployError) return error;
