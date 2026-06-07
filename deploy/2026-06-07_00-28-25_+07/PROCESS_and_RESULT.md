@@ -215,6 +215,33 @@ Still external/not locally provable:
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
 
+Client safe reported readiness CLI work at 2026-06-07 07:42 +07:
+
+- Rechecked `npm run production:readiness` as the target-host production evidence command.
+- Found that report writing used top-level `await` with no safe fallback.
+- Risk: if `CLIENT_REPORT_DIR` was invalid or report writing failed, Node could print raw stack/error text instead of a safe JSON failure report.
+- A local smoke with `CLIENT_REPORT_DIR=/dev/null/secret-token-raw` showed that token-like filesystem paths also needed redaction in fallback errors.
+- Fixed in client:
+  - added `src/deploy/reported-command.ts`;
+  - migrated `scripts/run-production-readiness.ts` to the safe wrapper;
+  - redacted secret-bearing filesystem paths in deploy redaction;
+  - redacted `report_path` values before command output.
+- Business logic: client host readiness from router `doc/IMPLEMENTATION_DETAILS.md` sections 20, 23, 24 and 25 is target-host evidence, so the command must fail closed and keep output safe even when report persistence itself fails.
+
+Verification:
+
+- Client targeted reported-command tests passed: 1 test file and 4 tests.
+- Client failure-path smoke with `CLIENT_REPORT_DIR=/dev/null/secret-token-raw npm run production:readiness` returned exit code 1, printed redacted JSON fallback, kept stderr empty and did not print the raw token-like path.
+- Client `npm run build` passed.
+- Client `npm test` passed: 21 passed test files and 62 passed tests, plus 1 skipped opt-in local Ollama test file.
+- Router `npm run test:e2e` passed with this client build: classify, chat, JSONL/CSV import, batch, export and deploy.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.
+
 Client connection-error log hardening at 2026-06-07 07:36 +07:
 
 - Continued the production log/privacy audit from router `doc/gaps.md`.

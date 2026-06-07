@@ -1,7 +1,7 @@
 import { getClientProductionReadiness } from '../src/deploy/production-readiness.js';
-import { writeClientDeployReport } from '../src/deploy/report-service.js';
+import { runClientReportedCommand } from '../src/deploy/reported-command.js';
 
-const report = await getClientProductionReadiness();
-const saved = await writeClientDeployReport('production-readiness', report);
-console.log(JSON.stringify({ ...report, report_path: saved.path }, null, 2));
-if (report.status !== 'pass') process.exit(1);
+const exitCode = await runClientReportedCommand('production-readiness', getClientProductionReadiness, {
+  successExitCode: (report) => report.status === 'pass' ? 0 : 1
+});
+if (exitCode !== 0) process.exit(exitCode);
