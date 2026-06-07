@@ -696,8 +696,7 @@ describe('RouterConnection', () => {
             type: 'deploy_update',
             request_id: 'deploy-request-1',
             payload: {
-              deploy_id: 'deploy-git-1',
-              target_version: 'git-main'
+              deploy_id: 'deploy-git-1'
             }
           }));
         }
@@ -724,7 +723,7 @@ describe('RouterConnection', () => {
     connection.close();
     const deployResult = received.map((raw) => JSON.parse(raw)).find((item) => item.type === 'deploy_result');
     expect(deployResult.payload.client_version).toBe('0.2.0');
-    expect(JSON.parse(await readFile(marker, 'utf8'))).toMatchObject({ artifact: '', target: 'git-main', deploy: 'deploy-git-1' });
+    expect(JSON.parse(await readFile(marker, 'utf8'))).toMatchObject({ artifact: '', target: '', deploy: 'deploy-git-1' });
     await rm(dir, { recursive: true, force: true });
   });
 

@@ -15,7 +15,7 @@ type RollbackManifest = {
   created_at: string;
   previous_client_version: string;
   previous_build_id: string;
-  target_version: string;
+  target_version: string | null;
   artifact_path: string;
   artifact_sha256: string | null;
   rollback_note: string;
@@ -43,7 +43,7 @@ export async function runDeployUpdate(
     const rollbackManifestPath = await writeRollbackManifest(deployDir, config, clientVersion, artifact.path, artifact.sha256, payload);
     await runDeployCommand(config.deployCommand, config.deployTimeoutMs, {
       artifactPath: artifact.path,
-      targetVersion: payload.target_version,
+      targetVersion: payload.target_version ?? '',
       deployId: payload.deploy_id,
       previousClientVersion: clientVersion,
       previousBuildId: config.buildId,
@@ -152,7 +152,7 @@ async function writeRollbackManifest(
     created_at: new Date().toISOString(),
     previous_client_version: clientVersion,
     previous_build_id: config.buildId,
-    target_version: payload.target_version,
+    target_version: payload.target_version ?? null,
     artifact_path: artifactPath,
     artifact_sha256: artifactSha256,
     rollback_note: 'Use previous_client_version and previous_build_id to select the previous trusted client package or artifact for manual rollback.'
