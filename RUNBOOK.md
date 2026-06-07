@@ -206,7 +206,16 @@ RUN_LOCAL_OLLAMA=1 CLASSIFICATION_MIN_ACCURACY=0.9 npm run classification:baseli
 RUN_LOCAL_OLLAMA=1 npm run test:local-ollama
 ```
 
+Console output is summary-only by default and does not print `cases[].text`.
+Full case output is available only for approved local debugging:
+
+```bash
+CLASSIFICATION_PRINT_CASES=1 npm run classification:baseline
+```
+
 Use `qwen2.5:0.5b` only for lightweight smoke on CPU-only hosts.
+Saved baseline artifacts are written under `CLASSIFICATION_REPORT_DIR` or
+`var/classification-baseline` as private local files.
 
 ## Trusted Dev Deploy Agent
 

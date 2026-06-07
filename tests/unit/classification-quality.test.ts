@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { evaluateKeywordBaseline, saveBaselineReportArtifact } from '../../src/classification-baseline.js';
+import { baselineConsoleReport, evaluateKeywordBaseline, saveBaselineReportArtifact } from '../../src/classification-baseline.js';
 import { classifyByKeywords } from '../../src/classification-rules.js';
 
 type DatasetItem = { text: string; expected_label: string };
@@ -25,7 +25,8 @@ describe('classification keyword baseline', () => {
   });
 
   it('persists historical baseline reports as artifacts', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-classification-report-'));
+    const root = await mkdtemp(path.join(os.tmpdir(), 'local-ai-classification-report-'));
+    const dir = path.join(root, 'reports');
     try {
       const dataset = await readDataset();
       const report = evaluateKeywordBaseline(dataset, ['sales', 'support', 'spam', 'other'], 'tests/datasets/classification-v0.jsonl');
@@ -38,6 +39,10 @@ describe('classification keyword baseline', () => {
 
       const files = await readdir(dir);
       expect(files).toEqual(['2026-06-07T01-45-00-000Z_keyword_keyword.json']);
+      const dirInfo = await stat(dir);
+      expect(dirInfo.mode & 0o777).toBe(0o700);
+      const fileInfo = await stat(saved.path);
+      expect(fileInfo.mode & 0o777).toBe(0o600);
       const content = JSON.parse(await readFile(saved.path, 'utf8')) as {
         generated_at: string;
         passed: boolean;
@@ -51,8 +56,21 @@ describe('classification keyword baseline', () => {
         total: dataset.length
       });
     } finally {
-      await rm(dir, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it('omits case text from default console report output', async () => {
+    const dataset = await readDataset();
+    const report = evaluateKeywordBaseline(dataset, ['sales', 'support', 'spam', 'other'], 'tests/datasets/classification-v0.jsonl');
+
+    const summaryOnly = baselineConsoleReport(report);
+    const full = baselineConsoleReport(report, { includeCases: true });
+
+    expect(summaryOnly).not.toHaveProperty('cases');
+    expect(JSON.stringify(summaryOnly)).not.toContain(dataset[0]!.text);
+    expect(full.cases).toHaveLength(dataset.length);
+    expect(JSON.stringify(full)).toContain(dataset[0]!.text);
   });
 });
 

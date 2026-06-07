@@ -26,6 +26,7 @@ describe('client runbook coverage', () => {
       'npm run production:readiness',
       'CLIENT_REPORT_KIND=production-readiness CLIENT_REPORT_LIMIT=1 npm run deploy:reports',
       'RUN_LOCAL_OLLAMA=1 CLASSIFICATION_MIN_ACCURACY=0.9 npm run classification:baseline',
+      'CLASSIFICATION_PRINT_CASES=1 npm run classification:baseline',
       'CLIENT_DEPLOY_ENABLED=true',
       'CLIENT_DATA_DIR/deploy/rollback.json',
       'LOCAL_AI_DEPLOY_PREVIOUS_VERSION'

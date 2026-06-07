@@ -1,5 +1,6 @@
 import { loadConfig } from '../src/config.js';
 import {
+  baselineConsoleReport,
   evaluateKeywordBaseline,
   evaluateOllamaBaseline,
   readClassificationDataset,
@@ -16,13 +17,14 @@ const mode = process.env.RUN_LOCAL_OLLAMA === '1' ? 'ollama' : 'keyword';
 const minAccuracy = Number(process.env.CLASSIFICATION_MIN_ACCURACY ?? '0.9');
 const reportDir = process.env.CLASSIFICATION_REPORT_DIR ?? 'var/classification-baseline';
 const writeReport = process.env.CLASSIFICATION_WRITE_REPORT !== '0';
+const printCases = process.env.CLASSIFICATION_PRINT_CASES === '1';
 
 const dataset = await readClassificationDataset(datasetPath);
 const report = mode === 'ollama'
   ? await evaluateOllamaBaseline(loadConfig(process.env), dataset, classes, model, datasetPath)
   : evaluateKeywordBaseline(dataset, classes, datasetPath);
 
-console.log(JSON.stringify(report, null, 2));
+console.log(JSON.stringify(baselineConsoleReport(report, { includeCases: printCases }), null, 2));
 
 const failed = report.accuracy < minAccuracy || report.contract_valid !== report.total;
 if (writeReport) {

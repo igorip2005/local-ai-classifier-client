@@ -40,6 +40,10 @@ export type BaselineReportArtifact = BaselineReport & {
   passed: boolean;
 };
 
+export type BaselineConsoleReport = Omit<BaselineReport, 'cases'> & {
+  cases?: BaselineCase[];
+};
+
 export async function readClassificationDataset(datasetPath: string): Promise<DatasetItem[]> {
   const content = await readFile(datasetPath, 'utf8');
   return content.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as DatasetItem);
@@ -113,11 +117,17 @@ export async function saveBaselineReportArtifact(
     min_accuracy: options.minAccuracy,
     passed: report.accuracy >= options.minAccuracy && report.contract_valid === report.total
   };
-  await mkdir(options.reportDir, { recursive: true });
+  await mkdir(options.reportDir, { recursive: true, mode: 0o700 });
   const fileName = `${fileTimestamp(generatedAt)}_${report.mode}_${safeFilePart(report.model ?? 'keyword')}.json`;
   const outputPath = path.join(options.reportDir, fileName);
-  await writeFile(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
+  await writeFile(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   return { path: outputPath, artifact };
+}
+
+export function baselineConsoleReport(report: BaselineReport, options: { includeCases?: boolean } = {}): BaselineConsoleReport {
+  const { cases, ...summary } = report;
+  if (options.includeCases) return { ...summary, cases };
+  return summary;
 }
 
 function summarizeReport(

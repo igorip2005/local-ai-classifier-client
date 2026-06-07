@@ -276,6 +276,27 @@ Verification:
 - Client `npm test` passed: 19 test files and 55 tests passed, plus 1 skipped opt-in local Ollama test file.
 - Client `git diff --check` passed.
 
+Additional classification baseline privacy hardening at 2026-06-07 07:06 +07:
+
+- Rechecked `npm run classification:baseline` output and artifacts against router `doc/IMPLEMENTATION_DETAILS.md` sections 20, 22 and 27.
+- Found that baseline reports include `cases[].text`, and the CLI printed the full report to stdout by default.
+- Found that saved baseline artifacts were not explicitly private files.
+- Risk: when operators run the baseline on a real or customer-derived dataset, raw message text could be copied from terminal output or stored with default file permissions.
+- Fixed in the client repo:
+  - default console output is summary-only and omits `cases`;
+  - full case output now requires explicit `CLASSIFICATION_PRINT_CASES=1`;
+  - saved baseline report directories use private `0700` mode;
+  - saved baseline report files use private `0600` mode;
+  - updated `RUNBOOK.md` and `README.md` with the privacy behavior.
+
+Verification:
+
+- Client `npm run build` passed.
+- Client targeted classification/runbook tests passed: 2 test files and 5 tests.
+- Client `npm run classification:baseline` smoke passed with a temporary `CLASSIFICATION_REPORT_DIR`; stdout omitted `cases`, while the private artifact kept full cases.
+- Client `npm test` passed: 19 test files and 56 tests passed, plus 1 skipped opt-in local Ollama test file.
+- Client `git diff --check` passed.
+
 Additional client deploy/status output redaction hardening at 2026-06-07 06:36 +07:
 
 - Rechecked client production service tooling against router `doc/IMPLEMENTATION_DETAILS.md` sections 20, 23, 24, 25 and 27.
