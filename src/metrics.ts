@@ -24,9 +24,20 @@ export async function collectResources(): Promise<Record<string, unknown>> {
 
 async function collectNvidiaGpu(): Promise<Record<string, unknown>[]> {
   const fields = ['name', 'utilization.gpu', 'memory.used', 'memory.total', 'temperature.gpu', 'power.draw', 'power.limit'];
+  const candidates = process.env.NVIDIA_SMI_PATH
+    ? [process.env.NVIDIA_SMI_PATH]
+    : ['nvidia-smi', '/usr/bin/nvidia-smi', '/usr/local/cuda/bin/nvidia-smi'];
+  for (const candidate of candidates) {
+    const gpu = await collectNvidiaGpuWith(candidate, fields);
+    if (gpu) return gpu;
+  }
+  return collectLinuxGpuInventory();
+}
+
+async function collectNvidiaGpuWith(bin: string, fields: string[]): Promise<Record<string, unknown>[] | null> {
   try {
     const { stdout } = await execFileAsync(
-      process.env.NVIDIA_SMI_PATH || 'nvidia-smi',
+      bin,
       [`--query-gpu=${fields.join(',')}`, '--format=csv,noheader,nounits'],
       { timeout: 3000 }
     );
@@ -41,6 +52,27 @@ async function collectNvidiaGpu(): Promise<Record<string, unknown>[]> {
         power_draw_w: numberOrNull(powerDraw),
         power_limit_w: numberOrNull(powerLimit)
       };
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function collectLinuxGpuInventory(): Promise<Record<string, unknown>[]> {
+  if (os.platform() !== 'linux') return [];
+  try {
+    const { stdout } = await execFileAsync(process.env.LSPCI_PATH || 'lspci', [], { timeout: 3000 });
+    return stdout.trim().split('\n').filter(Boolean).flatMap((line) => {
+      if (!/\b(VGA compatible controller|3D controller|Display controller)\b/i.test(line)) return [];
+      const name = line.replace(/^[0-9a-f:.]+\s+[^:]+:\s*/i, '').trim();
+      if (!/(nvidia|geforce|rtx|tesla|quadro|advanced micro devices|amd|radeon|intel.*(arc|graphics|iris|uhd))/i.test(name)) return [];
+      return [{
+        name,
+        gpu_busy_pct: null,
+        vram_used_mb: null,
+        vram_total_mb: null,
+        telemetry: 'lspci'
+      }];
     });
   } catch {
     return [];

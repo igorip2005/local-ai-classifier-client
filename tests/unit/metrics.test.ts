@@ -5,12 +5,18 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { collectResources } from '../../src/metrics.js';
 
 const originalNvidiaSmiPath = process.env.NVIDIA_SMI_PATH;
+const originalLspciPath = process.env.LSPCI_PATH;
 
 afterEach(() => {
   if (originalNvidiaSmiPath === undefined) {
     delete process.env.NVIDIA_SMI_PATH;
   } else {
     process.env.NVIDIA_SMI_PATH = originalNvidiaSmiPath;
+  }
+  if (originalLspciPath === undefined) {
+    delete process.env.LSPCI_PATH;
+  } else {
+    process.env.LSPCI_PATH = originalLspciPath;
   }
 });
 
@@ -38,9 +44,29 @@ describe('collectResources', () => {
 
   it('falls back to an empty GPU list when NVIDIA telemetry is unavailable', async () => {
     process.env.NVIDIA_SMI_PATH = '/missing/local-ai-classifier-nvidia-smi';
+    process.env.LSPCI_PATH = '/missing/local-ai-classifier-lspci';
 
     const resources = await collectResources();
     expect(resources.gpu).toEqual([]);
     expect(resources.cpu_cores).toBeGreaterThan(0);
+  });
+
+  it('uses lspci inventory when NVIDIA telemetry is unavailable', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-lspci-'));
+    try {
+      const bin = path.join(dir, 'lspci');
+      await writeFile(bin, '#!/bin/sh\nprintf "00:02.0 VGA compatible controller: Intel Corporation 440FX\\n01:00.0 VGA compatible controller: NVIDIA Corporation GA104 [GeForce RTX 3060]\\n02:00.0 3D controller: Advanced Micro Devices, Inc. [AMD/ATI] Navi 23\\n"\n');
+      await chmod(bin, 0o700);
+      process.env.NVIDIA_SMI_PATH = '/missing/local-ai-classifier-nvidia-smi';
+      process.env.LSPCI_PATH = bin;
+
+      const resources = await collectResources();
+      expect(resources.gpu).toEqual([
+        { name: 'NVIDIA Corporation GA104 [GeForce RTX 3060]', gpu_busy_pct: null, vram_used_mb: null, vram_total_mb: null, telemetry: 'lspci' },
+        { name: 'Advanced Micro Devices, Inc. [AMD/ATI] Navi 23', gpu_busy_pct: null, vram_used_mb: null, vram_total_mb: null, telemetry: 'lspci' }
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

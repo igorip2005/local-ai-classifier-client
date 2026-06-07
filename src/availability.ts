@@ -25,5 +25,5 @@ export function evaluateAvailability(resources: Record<string, unknown>, manualE
     return { mode: 'office_work', can_accept_tasks: true, reason: 'CPU load is elevated, only light tasks allowed' };
   }
 
-  return { mode: 'idle', can_accept_tasks: true, reason: 'CPU and GPU look available' };
+  return { mode: 'idle', can_accept_tasks: true, reason: gpu.length ? 'CPU and GPU look available' : 'CPU looks available, GPU not detected' };
 }

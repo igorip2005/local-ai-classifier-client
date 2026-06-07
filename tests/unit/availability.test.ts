@@ -13,4 +13,11 @@ describe('evaluateAvailability', () => {
     expect(result.mode).toBe('gpu_busy');
     expect(result.can_accept_tasks).toBe(false);
   });
+
+  it('does not claim GPU availability when no GPU is detected', () => {
+    const result = evaluateAvailability({ gpu: [] }, true);
+    expect(result.mode).toBe('idle');
+    expect(result.can_accept_tasks).toBe(true);
+    expect(result.reason).toBe('CPU looks available, GPU not detected');
+  });
 });
