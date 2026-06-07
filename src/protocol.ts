@@ -122,6 +122,10 @@ export type ModelInstallResultPayload = {
   error?: { code: string; message: string };
 };
 
+export type RegisterAckPayload = {
+  host_id: string;
+};
+
 const jsonObject = z.record(z.string(), z.unknown());
 
 const taskOptionsSchema = z.object({
@@ -196,6 +200,11 @@ const taskCancelPayloadSchema = z.object({
 });
 
 export const inboundRouterEnvelopeSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('register_ack'),
+    request_id: z.string().min(1),
+    payload: z.object({ host_id: z.string().min(1) })
+  }),
   z.object({
     type: z.literal('task_start'),
     request_id: z.string().min(1),

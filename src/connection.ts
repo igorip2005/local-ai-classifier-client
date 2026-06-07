@@ -13,6 +13,7 @@ import {
   type HeartbeatPayload,
   type ModelInstallPayload,
   type ModelInstallResultPayload,
+  type RegisterAckPayload,
   type TaskErrorPayload,
   type TaskCancelPayload,
   type TaskResultPayload,
@@ -28,6 +29,7 @@ export class RouterConnection extends EventEmitter {
   private fastTimer: NodeJS.Timeout | null = null;
   private fullTimer: NodeJS.Timeout | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private registerAckTimer: NodeJS.Timeout | null = null;
   private activeTasks = 0;
   private reconnectAttempt = 0;
   private shouldReconnect = true;
@@ -49,6 +51,7 @@ export class RouterConnection extends EventEmitter {
     this.socket.on('open', () => void this.register());
     this.socket.on('message', (data) => this.handleMessage(data.toString()));
     this.socket.on('close', () => {
+      this.clearRegisterAckTimer();
       this.stopHeartbeat();
       this.scheduleReconnect();
     });
@@ -61,6 +64,7 @@ export class RouterConnection extends EventEmitter {
   close(): void {
     this.shouldReconnect = false;
     this.clearReconnectTimer();
+    this.clearRegisterAckTimer();
     this.stopHeartbeat();
     this.socket?.close();
   }
@@ -71,8 +75,7 @@ export class RouterConnection extends EventEmitter {
     this.loadedModels = payload.capabilities.models.filter((model) => model.loaded).map((model) => model.name);
     this.capabilitiesSignature = signature(payload.capabilities.models.map((model) => `${model.name}:${model.loaded}`).sort());
     this.send({ type: 'register', request_id: randomUUID(), payload });
-    this.startHeartbeat();
-    this.startCapabilitiesRefresh();
+    this.registerAckTimer = setTimeout(() => this.startRegisteredRuntime(), 250);
     this.emit('registered_sent', payload);
   }
 
@@ -90,6 +93,11 @@ export class RouterConnection extends EventEmitter {
   private clearReconnectTimer(): void {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+  }
+
+  private clearRegisterAckTimer(): void {
+    if (this.registerAckTimer) clearTimeout(this.registerAckTimer);
+    this.registerAckTimer = null;
   }
 
   private startHeartbeat(): void {
@@ -171,6 +179,9 @@ export class RouterConnection extends EventEmitter {
       if (envelope.type === 'task_start') {
         void this.handleTaskStart(envelope.payload as TaskStartPayload);
       }
+      if (envelope.type === 'register_ack') {
+        this.handleRegisterAck(envelope.payload as RegisterAckPayload);
+      }
       if (envelope.type === 'task_cancel') {
         this.handleTaskCancel(envelope.payload as TaskCancelPayload);
       }
@@ -184,6 +195,22 @@ export class RouterConnection extends EventEmitter {
     } catch (error) {
       this.emit('protocol_error', error);
     }
+  }
+
+  private handleRegisterAck(payload: RegisterAckPayload): void {
+    if (payload.host_id !== this.hostId) {
+      this.emit('protocol_error', new Error(`register_ack host_id mismatch: ${payload.host_id}`));
+      return;
+    }
+    this.clearRegisterAckTimer();
+    this.startRegisteredRuntime();
+  }
+
+  private startRegisteredRuntime(): void {
+    this.clearRegisterAckTimer();
+    if (this.fastTimer || this.fullTimer) return;
+    this.startHeartbeat();
+    this.startCapabilitiesRefresh();
   }
 
   private async handleTaskStart(task: TaskStartPayload): Promise<void> {
