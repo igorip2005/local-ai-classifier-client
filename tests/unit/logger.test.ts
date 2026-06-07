@@ -1,6 +1,6 @@
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { createLogger } from '../../src/logger.js';
+import { createLogger, safeLogError } from '../../src/logger.js';
 
 describe('logger redaction', () => {
   it('removes setup, API and authorization secrets from structured logs', async () => {
@@ -41,5 +41,26 @@ describe('logger redaction', () => {
     expect(output).not.toContain('raw-generic-token');
     expect(output).not.toContain('raw-flat-authorization');
     expect(output).not.toContain('raw-flat-api-key');
+  });
+
+  it('serializes connection errors without stack traces or secret-bearing text', () => {
+    const error = new Error('router failed: https://router.example/connect?token=raw-url-token Authorization: Bearer raw-bearer-token api_key=raw-api-key');
+    error.stack = 'Error: raw stack with raw-url-token and raw-api-key';
+    Object.assign(error, { code: 'ECONNRESET', statusCode: 502 });
+
+    const safe = safeLogError(error);
+    const serialized = JSON.stringify(safe);
+
+    expect(safe).toMatchObject({
+      name: 'Error',
+      code: 'ECONNRESET',
+      status_code: 502
+    });
+    expect(serialized).toContain('https://router.example/connect?[redacted]');
+    expect(serialized).toContain('Bearer [redacted]');
+    expect(serialized).not.toContain('raw-url-token');
+    expect(serialized).not.toContain('raw-bearer-token');
+    expect(serialized).not.toContain('raw-api-key');
+    expect(serialized).not.toContain('raw stack');
   });
 });

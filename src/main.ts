@@ -3,7 +3,7 @@ import path from 'node:path';
 import { config } from './config.js';
 import { getOrCreateHostId } from './identity.js';
 import { RouterConnection } from './connection.js';
-import { logger } from './logger.js';
+import { logger, safeLogError } from './logger.js';
 import { readControlStatus, setManualEnabled } from './control.js';
 import { StatusServer } from './status-server.js';
 
@@ -19,7 +19,7 @@ const connection = new RouterConnection(config, hostId, version);
 const statusServer = new StatusServer(config, hostId, version);
 
 connection.on('registered_sent', () => logger.info({ event: 'register_sent', host_id: hostId, version }));
-connection.on('connection_error', (error) => logger.error({ event: 'router_connection_error', err: error }));
+connection.on('connection_error', (error) => logger.error({ event: 'router_connection_error', error: safeLogError(error) }));
 statusServer.start();
 connection.connect();
 

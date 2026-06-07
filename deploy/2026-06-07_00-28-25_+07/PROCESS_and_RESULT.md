@@ -215,6 +215,34 @@ Still external/not locally provable:
 - Trusted deploy acceptance must run against a configured external trusted host.
 - Distributed GPU acceptance must run against 2+ real GPU clients.
 
+Client connection-error log hardening at 2026-06-07 07:36 +07:
+
+- Continued the production log/privacy audit from router `doc/gaps.md`.
+- Found that `src/main.ts` logged raw `Error` objects for `router_connection_error`.
+- A WebSocket/transport failure can include router URLs, token-like text or local stack traces, so raw serialization is not acceptable for production logs under `doc/IMPLEMENTATION_DETAILS.md` sections 12, 20 and 22.
+- Added `safeLogError` in `src/logger.ts`.
+- `safeLogError` keeps bounded diagnostic fields and redacts:
+  - bearer tokens;
+  - API/setup/access token-like values;
+  - URL query strings;
+  - stack traces.
+- `router_connection_error` now logs `error: safeLogError(error)` instead of raw `err`.
+- Added logger unit coverage proving secret-bearing connection errors and stack text are not serialized.
+
+Verification:
+
+- Client targeted logger test passed: 1 test file and 2 tests.
+- Client `npm run build` passed.
+- Client `npm test` passed: 20 passed test files and 58 passed tests, plus 1 skipped opt-in local Ollama test file.
+- Router `npm run test:e2e` passed with this client build: classify, chat, JSONL/CSV import, batch, export and deploy.
+- Post-fix grep found no client production logger calls that pass raw `err: error`.
+
+Still external/not locally provable:
+
+- Client user service must still be installed and verified on each target client host.
+- Trusted deploy acceptance must run against a configured external trusted host.
+- Distributed GPU acceptance must run against 2+ real GPU clients.
+
 ## Final audit snapshot — 2026-06-07 07:10 +07
 
 User asked to re-find what is not done normally and what is not tested against the initial project documentation.
