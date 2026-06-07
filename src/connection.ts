@@ -11,6 +11,8 @@ import {
   type DeployUpdatePayload,
   type Envelope,
   type HeartbeatPayload,
+  type ModelInstallPayload,
+  type ModelInstallResultPayload,
   type TaskErrorPayload,
   type TaskCancelPayload,
   type TaskResultPayload,
@@ -173,6 +175,9 @@ export class RouterConnection extends EventEmitter {
       if (envelope.type === 'deploy_update') {
         void this.handleDeployUpdate(envelope.payload as DeployUpdatePayload);
       }
+      if (envelope.type === 'model_install') {
+        void this.handleModelInstall(envelope.payload as ModelInstallPayload);
+      }
       this.emit(envelope.type, envelope.payload);
     } catch (error) {
       this.emit('protocol_error', error);
@@ -237,6 +242,34 @@ export class RouterConnection extends EventEmitter {
     this.send({ type: 'deploy_result', request_id: randomUUID(), payload });
   }
 
+  private async handleModelInstall(payload: ModelInstallPayload): Promise<void> {
+    try {
+      if (!this.config.allowModelPull) {
+        throw new Error('Model install is disabled by CLIENT_ALLOW_MODEL_PULL=false');
+      }
+      const resources = await collectResources();
+      const compatibility = evaluateModelInstallCompatibility(resources, payload.requirements);
+      if (!compatibility.compatible) throw new Error(compatibility.reason);
+      const ollama = new OllamaClient(this.config.ollamaBaseUrl);
+      await ollama.pullModel(payload.model, payload.timeout_ms);
+      await this.refreshCapabilities();
+      void this.sendHeartbeat();
+      this.sendModelInstallResult({ command_id: payload.command_id, host_id: this.hostId, model: payload.model, status: 'succeeded' });
+    } catch (error) {
+      this.sendModelInstallResult({
+        command_id: payload.command_id,
+        host_id: this.hostId,
+        model: payload.model,
+        status: 'failed',
+        error: safeModelInstallFailure(error)
+      });
+    }
+  }
+
+  private sendModelInstallResult(payload: ModelInstallResultPayload): void {
+    this.send({ type: 'model_install_result', request_id: randomUUID(), payload });
+  }
+
   private async currentAvailability(): Promise<Availability> {
     const [resources, manualEnabled] = await Promise.all([
       collectResources(),
@@ -244,6 +277,46 @@ export class RouterConnection extends EventEmitter {
     ]);
     return evaluateAvailability(resources, manualEnabled);
   }
+}
+
+function evaluateModelInstallCompatibility(
+  resources: Record<string, unknown>,
+  requirements: ModelInstallPayload['requirements']
+): { compatible: boolean; reason: string } {
+  const ramTotalMb = numberOrNull(resources.ram_total_mb);
+  const gpu = Array.isArray(resources.gpu) ? resources.gpu : [];
+  const maxVramMb = maxNumber(gpu.map((item) => item && typeof item === 'object' ? numberOrNull((item as Record<string, unknown>).vram_total_mb) : null));
+  const hasRam = ramTotalMb !== null && ramTotalMb >= requirements.min_ram_mb;
+  const hasVram = requirements.min_vram_mb === undefined || (maxVramMb !== null && maxVramMb >= requirements.min_vram_mb);
+  if (hasRam || hasVram) return { compatible: true, reason: 'compatible' };
+  return {
+    compatible: false,
+    reason: `Host resources do not satisfy model requirements: RAM ${formatMb(ramTotalMb)} / required ${formatMb(requirements.min_ram_mb)}, VRAM ${formatMb(maxVramMb)} / required ${requirements.min_vram_mb === undefined ? 'optional' : formatMb(requirements.min_vram_mb)}`
+  };
+}
+
+function safeModelInstallFailure(error: unknown): { code: string; message: string } {
+  const message = error instanceof Error ? error.message : '';
+  if (message.includes('CLIENT_ALLOW_MODEL_PULL=false')) return { code: 'model_install_disabled', message: 'Model install is disabled on this client' };
+  if (message.startsWith('Host resources do not satisfy')) return { code: 'model_incompatible', message };
+  if (message.startsWith('Ollama pull returned')) return { code: 'ollama_pull_failed', message: 'Ollama model pull failed' };
+  if (message.includes('fetch failed') || message.includes('aborted')) return { code: 'ollama_unavailable', message: 'Ollama is unavailable' };
+  return { code: 'model_install_failed', message: 'Model install failed' };
+}
+
+function numberOrNull(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function maxNumber(values: Array<number | null>): number | null {
+  const numbers = values.filter((value): value is number => value !== null);
+  return numbers.length ? Math.max(...numbers) : null;
+}
+
+function formatMb(value: number | null): string {
+  if (value === null) return 'unknown';
+  return value >= 1024 ? `${Math.round((value / 1024) * 10) / 10}GB` : `${value}MB`;
 }
 
 function signature(values: string[]): string {

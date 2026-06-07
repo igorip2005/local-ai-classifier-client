@@ -102,6 +102,24 @@ export type DeployResultPayload = {
   error?: { code: string; message: string };
 };
 
+export type ModelInstallPayload = {
+  command_id: string;
+  model: string;
+  timeout_ms: number;
+  requirements: {
+    min_ram_mb: number;
+    min_vram_mb?: number;
+  };
+};
+
+export type ModelInstallResultPayload = {
+  command_id: string;
+  host_id: string;
+  model: string;
+  status: 'succeeded' | 'failed';
+  error?: { code: string; message: string };
+};
+
 const jsonObject = z.record(z.string(), z.unknown());
 
 const taskOptionsSchema = z.object({
@@ -155,6 +173,16 @@ const deployUpdatePayloadSchema = z.object({
   artifact_sha256: z.string().regex(/^[a-f0-9]{64}$/i)
 });
 
+const modelInstallPayloadSchema = z.object({
+  command_id: z.string().min(1),
+  model: z.string().min(1),
+  timeout_ms: z.number().int().min(30_000).max(3_600_000),
+  requirements: z.object({
+    min_ram_mb: z.number().int().positive(),
+    min_vram_mb: z.number().int().positive().optional()
+  })
+});
+
 const taskCancelPayloadSchema = z.object({
   task_id: z.string().min(1),
   job_id: z.string().min(1).optional(),
@@ -176,6 +204,11 @@ export const inboundRouterEnvelopeSchema = z.discriminatedUnion('type', [
     type: z.literal('deploy_update'),
     request_id: z.string().min(1),
     payload: deployUpdatePayloadSchema
+  }),
+  z.object({
+    type: z.literal('model_install'),
+    request_id: z.string().min(1),
+    payload: modelInstallPayloadSchema
   })
 ]);
 

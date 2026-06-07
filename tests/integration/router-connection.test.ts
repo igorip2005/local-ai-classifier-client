@@ -670,6 +670,71 @@ describe('RouterConnection', () => {
     await new Promise<void>((resolve) => artifactServer.close(() => resolve()));
     await rm(dir, { recursive: true, force: true });
   });
+
+  it('runs guarded model_install commands and reports model_install_result', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-model-install-'));
+    let pulled = false;
+    const ollama = http.createServer((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/api/version') return res.end(JSON.stringify({ version: '0.21.0' }));
+      if (req.url === '/api/ps') return res.end(JSON.stringify({ models: [] }));
+      if (req.url === '/api/tags') return res.end(JSON.stringify({ models: pulled ? [{ name: 'qwen2.5:0.5b' }] : [] }));
+      if (req.url === '/api/pull') {
+        pulled = true;
+        return res.end(JSON.stringify({ status: 'success' }));
+      }
+      res.statusCode = 404;
+      res.end(JSON.stringify({ error: 'not found' }));
+    });
+    await new Promise<void>((resolve) => ollama.listen(0, '127.0.0.1', resolve));
+    const ollamaAddress = ollama.address();
+    if (!ollamaAddress || typeof ollamaAddress === 'string') throw new Error('missing ollama port');
+
+    const received: string[] = [];
+    server = http.createServer();
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (socket) => {
+      socket.on('message', (data) => {
+        const raw = data.toString();
+        received.push(raw);
+        const envelope = JSON.parse(raw) as { type: string };
+        if (envelope.type === 'register') {
+          socket.send(JSON.stringify({
+            type: 'model_install',
+            request_id: 'model-install-request-1',
+            payload: {
+              command_id: 'model-command-1',
+              model: 'qwen2.5:0.5b',
+              timeout_ms: 120000,
+              requirements: { min_ram_mb: 512 }
+            }
+          }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+
+    const config = loadConfig({
+      ROUTER_URL: `ws://127.0.0.1:${address.port}`,
+      OLLAMA_BASE_URL: `http://127.0.0.1:${ollamaAddress.port}`,
+      CLIENT_DATA_DIR: dir,
+      CLIENT_ALLOW_MODEL_PULL: 'true',
+      CLIENT_NAME: 'model-install-client'
+    });
+    const connection = new RouterConnection(config, 'host-model-install-id', '0.1.0');
+    connection.connect();
+
+    await waitFor(() => received.some((raw) => {
+      const envelope = JSON.parse(raw);
+      return envelope.type === 'model_install_result' && envelope.payload.status === 'succeeded';
+    }), 1500);
+    expect(pulled).toBe(true);
+    connection.close();
+    await new Promise<void>((resolve) => ollama.close(() => resolve()));
+    await rm(dir, { recursive: true, force: true });
+  });
 });
 
 async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
