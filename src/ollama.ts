@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
+import { access } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { execFile } from 'node:child_process';
 import os from 'node:os';
 import type { HostModel } from './protocol.js';
@@ -179,8 +181,9 @@ async function windowsPowerShellRequest(
     '[Console]::Out.Write($response.Content)'
   ].join('; ');
   const encoded = Buffer.from(command, 'utf16le').toString('base64');
+  const powershell = await windowsPowerShellBin();
   return new Promise((resolve, reject) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
+    execFile(powershell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
       encoding: 'utf8',
       timeout: 15_000,
       maxBuffer: 5 * 1024 * 1024,
@@ -193,6 +196,26 @@ async function windowsPowerShellRequest(
       resolve(stdout);
     });
   });
+}
+
+async function windowsPowerShellBin(): Promise<string> {
+  if (process.env.POWERSHELL_PATH) return process.env.POWERSHELL_PATH;
+  const candidates = [
+    '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
+    '/mnt/c/Windows/SysWOW64/WindowsPowerShell/v1.0/powershell.exe',
+    '/mnt/c/Program Files/PowerShell/7/pwsh.exe',
+    'powershell.exe'
+  ];
+  for (const candidate of candidates) {
+    if (!candidate.startsWith('/')) return candidate;
+    try {
+      await access(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // Try the next common Windows PowerShell path.
+    }
+  }
+  return 'powershell.exe';
 }
 
 function psString(value: string): string {
