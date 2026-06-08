@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import os from 'node:os';
 import type { HostModel } from './protocol.js';
 
@@ -21,19 +22,21 @@ const psSchema = z.object({
 
 export type OllamaHealth = { ok: boolean; version: string | null };
 
+type OllamaTarget =
+  | { kind: 'http'; baseUrl: string }
+  | { kind: 'windows-powershell'; baseUrl: string };
+
 export class OllamaClient {
   constructor(private readonly baseUrl: string) {}
 
   async health(): Promise<OllamaHealth> {
-    for (const baseUrl of await this.candidateBaseUrls()) {
+    for (const target of await this.candidateTargets()) {
       try {
-        const response = await fetch(`${baseUrl}/api/version`);
-        if (!response.ok) continue;
-        const body = await response.json() as { version?: string };
+        const body = await requestJson(target, '/api/version') as { version?: string };
         return { ok: true, version: body.version ?? null };
       } catch {
         // Try the next candidate. WSL clients often need the Windows host gateway
-        // instead of localhost when Ollama runs on the Windows side.
+        // or a PowerShell-side HTTP request when Ollama is bound to Windows localhost.
       }
     }
     return { ok: false, version: null };
@@ -52,14 +55,11 @@ export class OllamaClient {
   async pullModel(modelName: string, timeoutMs: number, signal?: AbortSignal): Promise<void> {
     const { signal: timeoutSignal, cleanup } = timeoutAbortSignal(timeoutMs, signal);
     try {
-      const response = await fetch(`${this.baseUrl}/api/pull`, {
+      await this.tryRequestJson('/api/pull', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: modelName, stream: false }),
+        body: { name: modelName, stream: false },
         signal: timeoutSignal
       });
-      const text = await response.text();
-      if (!response.ok) throw new Error(`Ollama pull returned ${response.status}: ${text.slice(0, 200)}`);
     } finally {
       cleanup();
     }
@@ -68,29 +68,20 @@ export class OllamaClient {
   async chat(body: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const { signal: timeoutSignal, cleanup } = timeoutAbortSignal(timeoutMs, signal);
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat`, {
+      return await this.tryRequestJson('/api/chat', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        body,
         signal: timeoutSignal
-      });
-      const text = await response.text();
-      const parsed = safeJson(text);
-      if (!response.ok) {
-        throw new Error(`Ollama returned ${response.status}: ${text.slice(0, 200)}`);
-      }
-      return parsed ?? { raw: text };
+      }) as Record<string, unknown>;
     } finally {
       cleanup();
     }
   }
 
   private async tags(): Promise<Omit<HostModel, 'loaded'>[]> {
-    for (const baseUrl of await this.candidateBaseUrls()) {
+    for (const target of await this.candidateTargets()) {
       try {
-        const response = await fetch(`${baseUrl}/api/tags`);
-        if (!response.ok) continue;
-        const parsed = tagsSchema.parse(await response.json());
+        const parsed = tagsSchema.parse(await requestJson(target, '/api/tags'));
         return parsed.models.map((model) => {
           const output: Omit<HostModel, 'loaded'> = { name: model.name };
           if (model.size !== undefined) output.size_bytes = model.size;
@@ -107,11 +98,9 @@ export class OllamaClient {
   }
 
   private async loadedModelNames(): Promise<Set<string>> {
-    for (const baseUrl of await this.candidateBaseUrls()) {
+    for (const target of await this.candidateTargets()) {
       try {
-        const response = await fetch(`${baseUrl}/api/ps`);
-        if (!response.ok) continue;
-        const parsed = psSchema.parse(await response.json());
+        const parsed = psSchema.parse(await requestJson(target, '/api/ps'));
         return new Set(parsed.models.map((model) => model.name));
       } catch {
         // Try the next candidate.
@@ -120,14 +109,102 @@ export class OllamaClient {
     return new Set();
   }
 
-  private async candidateBaseUrls(): Promise<string[]> {
-    const candidates = [this.baseUrl];
+  private async tryRequestJson(
+    path: string,
+    options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal } = {}
+  ): Promise<unknown> {
+    let lastError: unknown = null;
+    for (const target of await this.candidateTargets()) {
+      try {
+        return await requestJson(target, path, options);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('Ollama request failed');
+  }
+
+  private async candidateTargets(): Promise<OllamaTarget[]> {
+    const candidates: OllamaTarget[] = [{ kind: 'http', baseUrl: this.baseUrl }];
     if (isWsl()) {
       const gateway = await wslHostGateway();
-      if (gateway) candidates.push(`http://${gateway}:11434`);
-      candidates.push('http://host.docker.internal:11434');
+      if (gateway) candidates.push({ kind: 'http', baseUrl: `http://${gateway}:11434` });
+      candidates.push({ kind: 'http', baseUrl: 'http://host.docker.internal:11434' });
+      candidates.push({ kind: 'windows-powershell', baseUrl: normalizeWindowsLocalOllamaUrl(this.baseUrl) });
     }
-    return Array.from(new Set(candidates));
+    const seen = new Set<string>();
+    return candidates.filter((candidate) => {
+      const key = `${candidate.kind}:${candidate.baseUrl}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+}
+
+async function requestJson(
+  target: OllamaTarget,
+  path: string,
+  options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal } = {}
+): Promise<unknown> {
+  if (target.kind === 'windows-powershell') {
+    const text = await windowsPowerShellRequest(`${target.baseUrl}${path}`, options);
+    return safeJson(text) ?? {};
+  }
+
+  const init: RequestInit = { method: options.method ?? 'GET' };
+  if (options.body) {
+    init.headers = { 'content-type': 'application/json' };
+    init.body = JSON.stringify(options.body);
+  }
+  if (options.signal) init.signal = options.signal;
+  const response = await fetch(`${target.baseUrl}${path}`, init);
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Ollama returned ${response.status}: ${text.slice(0, 200)}`);
+  return safeJson(text) ?? {};
+}
+
+async function windowsPowerShellRequest(
+  url: string,
+  options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal }
+): Promise<string> {
+  const method = options.method ?? 'GET';
+  const body = options.body ? JSON.stringify(options.body) : null;
+  const bodyLine = body === null ? '' : ` -Body ${psString(body)} -ContentType 'application/json'`;
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    "$ProgressPreference = 'SilentlyContinue'",
+    `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`,
+    `$response = Invoke-WebRequest -UseBasicParsing -Uri ${psString(url)} -Method ${psString(method)} -TimeoutSec 10${bodyLine}`,
+    '[Console]::Out.Write($response.Content)'
+  ].join('; ');
+  const encoded = Buffer.from(command, 'utf16le').toString('base64');
+  return new Promise((resolve, reject) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
+      encoding: 'utf8',
+      timeout: 15_000,
+      maxBuffer: 5 * 1024 * 1024,
+      signal: options.signal
+    }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(stderr.trim() || error.message));
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
+function psString(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function normalizeWindowsLocalOllamaUrl(baseUrl: string): string {
+  try {
+    const parsed = new URL(baseUrl);
+    return `${parsed.protocol}//127.0.0.1:${parsed.port || '11434'}`;
+  } catch {
+    return 'http://127.0.0.1:11434';
   }
 }
 
