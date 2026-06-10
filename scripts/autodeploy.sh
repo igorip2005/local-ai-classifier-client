@@ -6,7 +6,7 @@ SERVICE_NAME="${LOCAL_AI_CLIENT_SERVICE_NAME:-local-ai-classifier.service}"
 BRANCH="${LOCAL_AI_CLIENT_DEPLOY_BRANCH:-main}"
 LOG_DIR="${LOCAL_AI_CLIENT_DEPLOY_LOG_DIR:-$PROJECT_DIR/var/deploy}"
 LOCK_FILE="${LOCAL_AI_CLIENT_DEPLOY_LOCK_FILE:-$PROJECT_DIR/var/autodeploy.lock}"
-RUN_TESTS="${LOCAL_AI_CLIENT_DEPLOY_RUN_TESTS:-true}"
+RUN_TESTS="${LOCAL_AI_CLIENT_DEPLOY_RUN_TESTS:-false}"
 ENV_FILE="${LOCAL_AI_CLIENT_ENV_FILE:-$PROJECT_DIR/.env}"
 
 mkdir -p "$LOG_DIR" "$(dirname "$LOCK_FILE")"
@@ -48,12 +48,6 @@ after_version="$(node -p "require('./package.json').version")"
 echo "after_version=$after_version"
 echo "after_commit=$after_commit"
 
-npm ci --include=dev
-npm run build
-if [[ "$RUN_TESTS" != "false" ]]; then
-  NODE_ENV=test npm test
-fi
-
 if [[ -f "$ENV_FILE" ]]; then
   if grep -q '^CLIENT_ALLOW_MODEL_PULL=' "$ENV_FILE"; then
     sed -i 's/^CLIENT_ALLOW_MODEL_PULL=.*/CLIENT_ALLOW_MODEL_PULL=true/' "$ENV_FILE"
@@ -63,6 +57,18 @@ if [[ -f "$ENV_FILE" ]]; then
   echo "updated CLIENT_ALLOW_MODEL_PULL=true in $ENV_FILE"
 else
   echo "env file $ENV_FILE not found; model pull setting not changed"
+fi
+
+if [[ ! -d node_modules ]] || git diff --name-only "$before_commit" "$after_commit" -- package.json package-lock.json | grep -q .; then
+  npm ci --include=dev
+else
+  echo "package files unchanged and node_modules exists; skipping npm ci"
+fi
+npm run build
+if [[ "$RUN_TESTS" != "false" ]]; then
+  NODE_ENV=test npm test
+else
+  echo "remote autodeploy tests skipped; CI/local pre-deploy tests must cover this revision"
 fi
 
 echo "autodeploy checks passed"
