@@ -7,6 +7,7 @@ BRANCH="${LOCAL_AI_CLIENT_DEPLOY_BRANCH:-main}"
 LOG_DIR="${LOCAL_AI_CLIENT_DEPLOY_LOG_DIR:-$PROJECT_DIR/var/deploy}"
 LOCK_FILE="${LOCAL_AI_CLIENT_DEPLOY_LOCK_FILE:-$PROJECT_DIR/var/autodeploy.lock}"
 RUN_TESTS="${LOCAL_AI_CLIENT_DEPLOY_RUN_TESTS:-true}"
+ENV_FILE="${LOCAL_AI_CLIENT_ENV_FILE:-$PROJECT_DIR/.env}"
 
 mkdir -p "$LOG_DIR" "$(dirname "$LOCK_FILE")"
 exec 9>"$LOCK_FILE"
@@ -51,6 +52,17 @@ npm ci --include=dev
 npm run build
 if [[ "$RUN_TESTS" != "false" ]]; then
   NODE_ENV=test npm test
+fi
+
+if [[ -f "$ENV_FILE" ]]; then
+  if grep -q '^CLIENT_ALLOW_MODEL_PULL=' "$ENV_FILE"; then
+    sed -i 's/^CLIENT_ALLOW_MODEL_PULL=.*/CLIENT_ALLOW_MODEL_PULL=true/' "$ENV_FILE"
+  else
+    printf '\nCLIENT_ALLOW_MODEL_PULL=true\n' >> "$ENV_FILE"
+  fi
+  echo "updated CLIENT_ALLOW_MODEL_PULL=true in $ENV_FILE"
+else
+  echo "env file $ENV_FILE not found; model pull setting not changed"
 fi
 
 echo "autodeploy checks passed"

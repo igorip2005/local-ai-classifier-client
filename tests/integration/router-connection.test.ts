@@ -787,6 +787,17 @@ describe('RouterConnection', () => {
       return envelope.type === 'model_install_result' && envelope.payload.status === 'succeeded';
     }), 1500);
     expect(pulled).toBe(true);
+    const result = received.map((raw) => JSON.parse(raw)).find((item) => item.type === 'model_install_result');
+    expect(result.payload.telemetry).toMatchObject({
+      command_id: 'model-command-1',
+      model: 'qwen2.5:0.5b',
+      status: 'succeeded',
+      installed_after: true
+    });
+    const heartbeat = received.map((raw) => JSON.parse(raw)).find((item) => {
+      return item.type === 'heartbeat' && item.payload.resources.model_install;
+    });
+    expect(heartbeat.payload.resources.model_install.allow_model_pull).toBe(true);
     connection.close();
     await new Promise<void>((resolve) => ollama.close(() => resolve()));
     await rm(dir, { recursive: true, force: true });

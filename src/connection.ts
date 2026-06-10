@@ -35,6 +35,11 @@ export class RouterConnection extends EventEmitter {
   private shouldReconnect = true;
   private loadedModels: string[] = [];
   private capabilitiesSignature = '';
+  private modelInstallState: Record<string, unknown> = {
+    allow_model_pull: false,
+    active: null,
+    last: null
+  };
   private readonly taskControllers = new Map<string, AbortController>();
 
   constructor(
@@ -161,7 +166,11 @@ export class RouterConnection extends EventEmitter {
         ...resources,
         processes: { ...processes, ollama_running: ollamaHealth.ok },
         ollama: ollamaHealth,
-        availability
+        availability,
+        model_install: {
+          ...this.modelInstallState,
+          allow_model_pull: this.config.allowModelPull
+        }
       }
     };
     this.send({ type: 'heartbeat', request_id: randomUUID(), payload });
@@ -272,6 +281,19 @@ export class RouterConnection extends EventEmitter {
   }
 
   private async handleModelInstall(payload: ModelInstallPayload): Promise<void> {
+    const startedAt = new Date();
+    const startedAtMs = Date.now();
+    this.setModelInstallState({
+      active: {
+        command_id: payload.command_id,
+        model: payload.model,
+        status: 'starting',
+        started_at: startedAt.toISOString(),
+        timeout_ms: payload.timeout_ms,
+        requirements: payload.requirements
+      }
+    });
+    void this.sendHeartbeat();
     try {
       if (!this.config.allowModelPull) {
         throw new Error('Model install is disabled by CLIENT_ALLOW_MODEL_PULL=false');
@@ -280,17 +302,47 @@ export class RouterConnection extends EventEmitter {
       const compatibility = evaluateModelInstallCompatibility(resources, payload.requirements);
       if (!compatibility.compatible) throw new Error(compatibility.reason);
       const ollama = new OllamaClient(this.config.ollamaBaseUrl);
+      const installedBefore = await ollama.hasModel(payload.model);
+      this.setModelInstallState({
+        active: {
+          command_id: payload.command_id,
+          model: payload.model,
+          status: installedBefore ? 'verifying_existing' : 'pulling',
+          started_at: startedAt.toISOString(),
+          timeout_ms: payload.timeout_ms,
+          requirements: payload.requirements,
+          compatibility: compatibility.reason,
+          installed_before: installedBefore
+        }
+      });
+      void this.sendHeartbeat();
       await ollama.pullModel(payload.model, payload.timeout_ms);
       await this.refreshCapabilities();
+      const installedAfter = await ollama.hasModel(payload.model);
+      const telemetry = modelInstallTelemetry(payload, startedAt, startedAtMs, {
+        status: 'succeeded',
+        compatibility: compatibility.reason,
+        installed_before: installedBefore,
+        installed_after: installedAfter
+      });
+      this.setModelInstallState({ active: null, last: telemetry });
       void this.sendHeartbeat();
-      this.sendModelInstallResult({ command_id: payload.command_id, host_id: this.hostId, model: payload.model, status: 'succeeded' });
+      this.sendModelInstallResult({ command_id: payload.command_id, host_id: this.hostId, model: payload.model, status: 'succeeded', telemetry });
     } catch (error) {
+      const safeError = safeModelInstallFailure(error);
+      const telemetry = modelInstallTelemetry(payload, startedAt, startedAtMs, {
+        status: 'failed',
+        error: safeError
+      });
+      this.setModelInstallState({ active: null, last: telemetry });
+      void this.sendHeartbeat();
       this.sendModelInstallResult({
         command_id: payload.command_id,
         host_id: this.hostId,
         model: payload.model,
         status: 'failed',
-        error: safeModelInstallFailure(error)
+        error: safeError,
+        telemetry
       });
     }
   }
@@ -306,6 +358,33 @@ export class RouterConnection extends EventEmitter {
     ]);
     return evaluateAvailability(resources, manualEnabled);
   }
+
+  private setModelInstallState(patch: Record<string, unknown>): void {
+    this.modelInstallState = {
+      ...this.modelInstallState,
+      ...patch,
+      allow_model_pull: this.config.allowModelPull,
+      updated_at: new Date().toISOString()
+    };
+  }
+}
+
+function modelInstallTelemetry(
+  payload: ModelInstallPayload,
+  startedAt: Date,
+  startedAtMs: number,
+  extra: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    command_id: payload.command_id,
+    model: payload.model,
+    started_at: startedAt.toISOString(),
+    finished_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedAtMs,
+    timeout_ms: payload.timeout_ms,
+    requirements: payload.requirements,
+    ...extra
+  };
 }
 
 function evaluateModelInstallCompatibility(

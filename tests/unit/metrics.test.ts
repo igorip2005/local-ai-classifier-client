@@ -7,6 +7,7 @@ import { collectResources } from '../../src/metrics.js';
 const originalNvidiaSmiPath = process.env.NVIDIA_SMI_PATH;
 const originalLspciPath = process.env.LSPCI_PATH;
 const originalPowerShellPath = process.env.POWERSHELL_PATH;
+const originalProcessListPath = process.env.PROCESS_LIST_PATH;
 
 afterEach(() => {
   if (originalNvidiaSmiPath === undefined) {
@@ -23,6 +24,11 @@ afterEach(() => {
     delete process.env.POWERSHELL_PATH;
   } else {
     process.env.POWERSHELL_PATH = originalPowerShellPath;
+  }
+  if (originalProcessListPath === undefined) {
+    delete process.env.PROCESS_LIST_PATH;
+  } else {
+    process.env.PROCESS_LIST_PATH = originalProcessListPath;
   }
 });
 
@@ -43,6 +49,36 @@ describe('collectResources', () => {
       expect(resources.ram_used_mb).toBeTypeOf('number');
       expect(resources.ram_used_pct).toBeTypeOf('number');
       expect(resources.uptime_sec).toBeGreaterThan(0);
+      expect(resources.processes).toMatchObject({ client_pid: process.pid });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('includes a safe process snapshot for client and Ollama health', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-processes-'));
+    try {
+      const bin = path.join(dir, 'ps');
+      await writeFile(bin, [
+        '#!/bin/sh',
+        `printf " ${process.pid} 1 node 1.2 0.5 00:01:02 node dist/src/main.js --secret token\\n 4242 1 ollama 3.4 1.2 00:02:03 /usr/bin/ollama serve\\n 9999 1 bash 0.0 0.1 00:00:01 bash\\n"`,
+        ''
+      ].join('\n'));
+      await chmod(bin, 0o700);
+      process.env.PROCESS_LIST_PATH = bin;
+
+      const resources = await collectResources();
+      expect(resources.processes).toMatchObject({
+        client_pid: process.pid,
+        ollama_running: true,
+        client_running: true
+      });
+      const processes = (resources.processes as { items: Array<Record<string, unknown>> }).items;
+      expect(processes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ pid: process.pid, command: 'node' }),
+        expect.objectContaining({ pid: 4242, command: 'ollama' })
+      ]));
+      expect(JSON.stringify(processes)).not.toContain('secret token');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

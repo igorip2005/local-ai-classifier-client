@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 export async function collectResources(): Promise<Record<string, unknown>> {
-  const gpu = await collectNvidiaGpu();
+  const [gpu, processes] = await Promise.all([collectNvidiaGpu(), collectProcessSnapshot()]);
   const totalMemMb = Math.round(os.totalmem() / 1024 / 1024);
   const freeMemMb = Math.round(os.freemem() / 1024 / 1024);
   const usedMemMb = Math.max(0, totalMemMb - freeMemMb);
@@ -18,8 +18,99 @@ export async function collectResources(): Promise<Record<string, unknown>> {
     ram_used_mb: usedMemMb,
     ram_used_pct: totalMemMb > 0 ? round((usedMemMb / totalMemMb) * 100) : null,
     uptime_sec: Math.round(os.uptime()),
-    gpu
+    gpu,
+    processes
   };
+}
+
+async function collectProcessSnapshot(): Promise<Record<string, unknown>> {
+  const base = {
+    client_pid: process.pid,
+    client_ppid: process.ppid,
+    process_platform: os.platform()
+  };
+  const items = os.platform() === 'win32'
+    ? await collectWindowsProcesses()
+    : await collectPosixProcesses();
+  return {
+    ...base,
+    items,
+    ollama_running: items.some((item) => typeof item.name === 'string' && item.name.toLowerCase().includes('ollama')),
+    client_running: items.some((item) => item.pid === process.pid)
+  };
+}
+
+async function collectPosixProcesses(): Promise<Array<Record<string, unknown>>> {
+  try {
+    const { stdout } = await execFileAsync(
+      process.env.PROCESS_LIST_PATH || 'ps',
+      ['-eo', 'pid=,ppid=,comm=,pcpu=,pmem=,etime=,args='],
+      { timeout: 3000, maxBuffer: 1024 * 1024 }
+    );
+    return stdout.trim().split('\n').filter(Boolean).flatMap((line) => parsePosixProcessLine(line)).slice(0, 25);
+  } catch {
+    return [];
+  }
+}
+
+function parsePosixProcessLine(line: string): Array<Record<string, unknown>> {
+  const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+([0-9.]+)\s+([0-9.]+)\s+(\S+)\s+(.+)$/);
+  if (!match) return [];
+  const [, pid = '', ppid = '', name = '', cpuPct = '', memPct = '', elapsed = '', args = ''] = match;
+  if (!isRelevantProcess(name, args, Number(pid))) return [];
+  return [{
+    pid: Number(pid),
+    ppid: Number(ppid),
+    name,
+    cpu_pct: numberOrNull(cpuPct),
+    mem_pct: numberOrNull(memPct),
+    elapsed,
+    command: safeCommandName(args)
+  }];
+}
+
+async function collectWindowsProcesses(): Promise<Array<Record<string, unknown>>> {
+  const command = [
+    'Get-CimInstance Win32_Process',
+    "| Where-Object { $_.Name -match 'node|ollama' -or $_.CommandLine -match 'local-ai-classifier-client' }",
+    '| Select-Object ProcessId,ParentProcessId,Name,CommandLine',
+    '| ConvertTo-Json -Compress'
+  ].join(' ');
+  try {
+    const { stdout } = await execFileAsync(
+      process.env.POWERSHELL_PATH || 'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', command],
+      { timeout: 3000, maxBuffer: 1024 * 1024 }
+    );
+    const parsed = parseJson(stdout.trim());
+    const items = Array.isArray(parsed) ? parsed : parsed && typeof parsed === 'object' ? [parsed] : [];
+    return items.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const record = item as Record<string, unknown>;
+      const name = typeof record.Name === 'string' ? record.Name : '';
+      const commandLine = typeof record.CommandLine === 'string' ? record.CommandLine : name;
+      const pid = Number(record.ProcessId);
+      if (!isRelevantProcess(name, commandLine, pid)) return [];
+      return [{
+        pid,
+        ppid: Number(record.ParentProcessId),
+        name,
+        command: safeCommandName(commandLine)
+      }];
+    }).slice(0, 25);
+  } catch {
+    return [];
+  }
+}
+
+function isRelevantProcess(name: string, args: string, pid: number): boolean {
+  if (pid === process.pid || pid === process.ppid) return true;
+  return /(ollama|local-ai-classifier-client)/i.test(`${name} ${args}`);
+}
+
+function safeCommandName(args: string): string {
+  const first = args.trim().split(/\s+/)[0] ?? '';
+  return first.split(/[\\/]/).pop() || first || 'unknown';
 }
 
 async function collectNvidiaGpu(): Promise<Record<string, unknown>[]> {

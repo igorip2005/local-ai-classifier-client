@@ -31,7 +31,7 @@ OLLAMA_BASE_URL=http://127.0.0.1:11434
 CLIENT_NAME=local-test-client
 CLIENT_LOCAL_LOG_MODE=none
 CLIENT_MAX_CONCURRENT_TASKS=1
-CLIENT_ALLOW_MODEL_PULL=false
+CLIENT_ALLOW_MODEL_PULL=true
 CLIENT_MANUAL_ENABLED=true
 CLIENT_FAST_HEARTBEAT_MS=5000
 CLIENT_FULL_HEARTBEAT_MS=15000
@@ -64,6 +64,8 @@ curl http://127.0.0.1:$CLIENT_STATUS_PORT/status
 - Client отправляет только исходящее WebSocket-соединение к router.
 - Локальное логирование запросов выключено режимом `CLIENT_LOCAL_LOG_MODE=none`.
 - GPU telemetry берётся из `nvidia-smi`, если он доступен.
+- Heartbeat отправляет process snapshot по самому client и Ollama, а также текущее/последнее состояние установки моделей.
+- Git autodeploy выставляет `CLIENT_ALLOW_MODEL_PULL=true` в локальном `.env`, чтобы router API мог запускать установку моделей через client.
 - Бизнес-логика взята из `/www/projects/local-ai-classifier-router/doc/IMPLEMENTATION_DETAILS.md`, разделы 5, 7, 15, 20, 21 и 24.
 
 ## Systemd deploy

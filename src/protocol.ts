@@ -120,6 +120,7 @@ export type ModelInstallResultPayload = {
   model: string;
   status: 'succeeded' | 'failed';
   error?: { code: string; message: string };
+  telemetry?: Record<string, unknown>;
 };
 
 export type RegisterAckPayload = {
