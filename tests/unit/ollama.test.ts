@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -32,7 +32,7 @@ describe('OllamaClient', () => {
     if (!address || typeof address === 'string') throw new Error('missing server port');
 
     const client = new OllamaClient(`http://127.0.0.1:${address.port}`);
-    await expect(client.health()).resolves.toEqual({ ok: true, version: '0.21.0' });
+    await expect(client.health()).resolves.toMatchObject({ ok: true, version: '0.21.0', target_kind: 'http' });
     const models = await client.discoverModels();
     expect(models[0]).toMatchObject({ name: 'qwen2.5:0.5b', loaded: true });
   });
@@ -51,9 +51,36 @@ describe('OllamaClient', () => {
       process.env.POWERSHELL_PATH = bin;
 
       const client = new OllamaClient('http://127.0.0.1:9');
-      await expect(client.health()).resolves.toEqual({ ok: true, version: '0.24.0' });
+      await expect(client.health()).resolves.toMatchObject({ ok: true, version: '0.24.0', target_kind: 'windows-powershell' });
       const models = await client.discoverModels();
       expect(models[0]).toMatchObject({ name: 'qwen3:8b-q4_K_M', loaded: true });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the requested install timeout for PowerShell model pulls', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-ollama-powershell-pull-'));
+    try {
+      const bin = path.join(dir, 'powershell.exe');
+      const encodedPath = path.join(dir, 'encoded.txt');
+      await writeFile(bin, [
+        '#!/bin/sh',
+        `printf '%s' "$4" > ${JSON.stringify(encodedPath)}`,
+        'printf \'{"status":"success"}\'',
+        ''
+      ].join('\n'));
+      await chmod(bin, 0o700);
+      process.env.WSL_DISTRO_NAME = 'Ubuntu';
+      process.env.POWERSHELL_PATH = bin;
+
+      const client = new OllamaClient('http://127.0.0.1:9');
+      await client.pullModel('qwen2.5:1.5b', 123_000);
+
+      const encoded = await readFile(encodedPath, 'utf8');
+      const command = Buffer.from(encoded, 'base64').toString('utf16le');
+      expect(command).toContain('/api/pull');
+      expect(command).toContain('-TimeoutSec 123');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

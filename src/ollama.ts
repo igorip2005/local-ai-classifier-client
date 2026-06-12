@@ -22,7 +22,12 @@ const psSchema = z.object({
   models: z.array(z.object({ name: z.string() })).default([])
 });
 
-export type OllamaHealth = { ok: boolean; version: string | null };
+export type OllamaHealth = {
+  ok: boolean;
+  version: string | null;
+  target_kind?: OllamaTarget['kind'];
+  target_url?: string;
+};
 
 type OllamaTarget =
   | { kind: 'http'; baseUrl: string }
@@ -35,7 +40,12 @@ export class OllamaClient {
     for (const target of await this.candidateTargets()) {
       try {
         const body = await requestJson(target, '/api/version') as { version?: string };
-        return { ok: true, version: body.version ?? null };
+        return {
+          ok: true,
+          version: body.version ?? null,
+          target_kind: target.kind,
+          target_url: target.baseUrl
+        };
       } catch {
         // Try the next candidate. WSL clients often need the Windows host gateway
         // or a PowerShell-side HTTP request when Ollama is bound to Windows localhost.
@@ -60,7 +70,8 @@ export class OllamaClient {
       await this.tryRequestJson('/api/pull', {
         method: 'POST',
         body: { name: modelName, stream: false },
-        signal: timeoutSignal
+        signal: timeoutSignal,
+        timeoutMs
       });
     } finally {
       cleanup();
@@ -113,7 +124,7 @@ export class OllamaClient {
 
   private async tryRequestJson(
     path: string,
-    options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal } = {}
+    options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal; timeoutMs?: number } = {}
   ): Promise<unknown> {
     let lastError: unknown = null;
     for (const target of await this.candidateTargets()) {
@@ -147,7 +158,7 @@ export class OllamaClient {
 async function requestJson(
   target: OllamaTarget,
   path: string,
-  options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal } = {}
+  options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<unknown> {
   if (target.kind === 'windows-powershell') {
     const text = await windowsPowerShellRequest(`${target.baseUrl}${path}`, options);
@@ -168,16 +179,18 @@ async function requestJson(
 
 async function windowsPowerShellRequest(
   url: string,
-  options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal }
+  options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal; timeoutMs?: number }
 ): Promise<string> {
   const method = options.method ?? 'GET';
   const body = options.body ? JSON.stringify(options.body) : null;
   const bodyLine = body === null ? '' : ` -Body ${psString(body)} -ContentType 'application/json'`;
+  const timeoutMs = options.timeoutMs ?? 15_000;
+  const timeoutSec = Math.max(1, Math.ceil(timeoutMs / 1000));
   const command = [
     "$ErrorActionPreference = 'Stop'",
     "$ProgressPreference = 'SilentlyContinue'",
     `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`,
-    `$response = Invoke-WebRequest -UseBasicParsing -Uri ${psString(url)} -Method ${psString(method)} -TimeoutSec 10${bodyLine}`,
+    `$response = Invoke-WebRequest -UseBasicParsing -Uri ${psString(url)} -Method ${psString(method)} -TimeoutSec ${timeoutSec}${bodyLine}`,
     '[Console]::Out.Write($response.Content)'
   ].join('; ');
   const encoded = Buffer.from(command, 'utf16le').toString('base64');
@@ -185,17 +198,25 @@ async function windowsPowerShellRequest(
   return new Promise((resolve, reject) => {
     execFile(powershell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
       encoding: 'utf8',
-      timeout: 15_000,
+      timeout: timeoutMs + 1000,
       maxBuffer: 5 * 1024 * 1024,
       signal: options.signal
     }, (error, stdout, stderr) => {
       if (error) {
-        reject(new Error(stderr.trim() || error.message));
+        reject(new Error(formatPowerShellError(error, stderr, timeoutMs)));
         return;
       }
       resolve(stdout);
     });
   });
+}
+
+function formatPowerShellError(error: Error & { killed?: boolean; signal?: string; code?: unknown }, stderr: string, timeoutMs: number): string {
+  const detail = stderr.trim() || error.message;
+  if (error.killed || error.signal === 'SIGTERM' || detail.includes('ETIMEDOUT')) {
+    return `Windows PowerShell Ollama request timed out after ${timeoutMs}ms`;
+  }
+  return detail;
 }
 
 async function windowsPowerShellBin(): Promise<string> {

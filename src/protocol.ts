@@ -13,7 +13,7 @@ export type RegisterPayload = {
   build_id?: string;
   hostname: string;
   platform: { os: string; arch: string };
-  ollama: { base_url: string; version: string | null; ok: boolean };
+  ollama: { base_url: string; version: string | null; ok: boolean; target_kind?: string; target_url?: string };
   capabilities: HostCapabilities;
 };
 
@@ -47,7 +47,7 @@ export type CapabilitiesUpdatePayload = {
   host_id: string;
   client_version: string;
   build_id?: string;
-  ollama: { base_url: string; version: string | null; ok: boolean };
+  ollama: { base_url: string; version: string | null; ok: boolean; target_kind?: string; target_url?: string };
   capabilities: HostCapabilities;
 };
 

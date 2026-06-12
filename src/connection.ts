@@ -354,6 +354,9 @@ export class RouterConnection extends EventEmitter {
       await ollama.pullModel(payload.model, payload.timeout_ms);
       await this.refreshCapabilities();
       const installedAfter = await ollama.hasModel(payload.model);
+      if (!installedAfter) {
+        throw new Error(`Model pull completed but model is still missing: ${payload.model}`);
+      }
       const telemetry = modelInstallTelemetry(payload, startedAt, startedAtMs, {
         status: 'succeeded',
         compatibility: compatibility.reason,
@@ -460,8 +463,17 @@ function safeModelInstallFailure(error: unknown): { code: string; message: strin
   const message = error instanceof Error ? error.message : '';
   if (message.includes('CLIENT_ALLOW_MODEL_PULL=false')) return { code: 'model_install_disabled', message: 'Model install is disabled on this client' };
   if (message.startsWith('Host resources do not satisfy')) return { code: 'model_incompatible', message };
+  if (message.includes('timed out') || message.includes('AbortError') || message.includes('aborted')) {
+    return { code: 'ollama_pull_timeout', message: 'Ollama model pull timed out' };
+  }
+  if (message.includes('Windows PowerShell')) return { code: 'ollama_windows_bridge_failed', message: 'Windows Ollama bridge failed' };
+  if (message.includes('fetch failed') || message.includes('ECONNREFUSED') || message.includes('EHOSTUNREACH')) {
+    return { code: 'ollama_unavailable', message: 'Ollama is unavailable from this client' };
+  }
   if (message.startsWith('Ollama pull returned')) return { code: 'ollama_pull_failed', message: 'Ollama model pull failed' };
-  if (message.includes('fetch failed') || message.includes('aborted')) return { code: 'ollama_unavailable', message: 'Ollama is unavailable' };
+  if (message.startsWith('Model pull completed but model is still missing')) {
+    return { code: 'model_install_verification_failed', message: 'Model pull completed but model is still missing' };
+  }
   return { code: 'model_install_failed', message: 'Model install failed' };
 }
 

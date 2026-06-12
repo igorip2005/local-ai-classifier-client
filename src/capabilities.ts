@@ -22,7 +22,13 @@ export async function buildRegisterPayload(
     build_id: config.buildId,
     hostname: config.clientName || os.hostname(),
     platform: { os: os.platform(), arch: os.arch() },
-    ollama: { base_url: config.ollamaBaseUrl, version: health.version, ok: health.ok },
+    ollama: {
+      base_url: config.ollamaBaseUrl,
+      version: health.version,
+      ok: health.ok,
+      ...(health.target_kind ? { target_kind: health.target_kind } : {}),
+      ...(health.target_url ? { target_url: health.target_url } : {})
+    },
     capabilities: { models, resources }
   };
   if (config.setupToken) payload.setup_token = config.setupToken;
