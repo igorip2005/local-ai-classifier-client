@@ -84,6 +84,45 @@ describe('collectResources', () => {
     }
   });
 
+  it('adds NVIDIA process VRAM telemetry to matching process rows', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-process-gpu-'));
+    try {
+      const ps = path.join(dir, 'ps');
+      const nvidiaSmi = path.join(dir, 'nvidia-smi');
+      await writeFile(ps, [
+        '#!/bin/sh',
+        'printf " 4242 1 ollama 8.5 2.1 00:02:03 /usr/bin/ollama serve\\n"',
+        ''
+      ].join('\n'));
+      await writeFile(nvidiaSmi, [
+        '#!/bin/sh',
+        'case "$1" in',
+        '  --query-gpu=*) printf "RTX 4090, 33, 4096, 24576, 61, 180, 450\\n" ;;',
+        '  --query-compute-apps=*) printf "4242, /usr/bin/ollama, GPU-test-uuid, 3072\\n" ;;',
+        'esac',
+        ''
+      ].join('\n'));
+      await chmod(ps, 0o700);
+      await chmod(nvidiaSmi, 0o700);
+      process.env.PROCESS_LIST_PATH = ps;
+      process.env.NVIDIA_SMI_PATH = nvidiaSmi;
+
+      const resources = await collectResources();
+      const processes = resources.processes as { items: Array<Record<string, unknown>>; gpu_processes: Array<Record<string, unknown>> };
+      expect(processes.gpu_processes).toEqual([
+        { pid: 4242, process_name: 'ollama', gpu_uuid: 'GPU-test-uuid', vram_used_mb: 3072 }
+      ]);
+      expect(processes.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          pid: 4242,
+          gpu: { process_name: 'ollama', gpu_uuid: 'GPU-test-uuid', vram_used_mb: 3072 }
+        })
+      ]));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('falls back to an empty GPU list when NVIDIA telemetry is unavailable', async () => {
     process.env.NVIDIA_SMI_PATH = '/missing/local-ai-classifier-nvidia-smi';
     process.env.LSPCI_PATH = '/missing/local-ai-classifier-lspci';

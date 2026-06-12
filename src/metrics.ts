@@ -29,12 +29,15 @@ async function collectProcessSnapshot(): Promise<Record<string, unknown>> {
     client_ppid: process.ppid,
     process_platform: os.platform()
   };
-  const items = os.platform() === 'win32'
-    ? await collectWindowsProcesses()
-    : await collectPosixProcesses();
+  const [items, gpuProcesses] = await Promise.all([
+    os.platform() === 'win32' ? collectWindowsProcesses() : collectPosixProcesses(),
+    collectNvidiaProcessUsage()
+  ]);
+  const gpuByPid = new Map(gpuProcesses.map((item) => [item.pid, item]));
   return {
     ...base,
-    items,
+    items: items.map((item) => enrichProcessWithGpu(item, gpuByPid.get(Number(item.pid)))),
+    gpu_processes: gpuProcesses,
     ollama_running: items.some((item) => typeof item.name === 'string' && item.name.toLowerCase().includes('ollama')),
     client_running: items.some((item) => item.pid === process.pid)
   };
@@ -123,6 +126,53 @@ async function collectNvidiaGpu(): Promise<Record<string, unknown>[]> {
     if (gpu) return gpu;
   }
   return collectGpuInventory();
+}
+
+async function collectNvidiaProcessUsage(): Promise<Array<Record<string, unknown>>> {
+  const fields = ['pid', 'process_name', 'gpu_uuid', 'used_gpu_memory'];
+  const candidates = process.env.NVIDIA_SMI_PATH
+    ? [process.env.NVIDIA_SMI_PATH]
+    : ['nvidia-smi', '/usr/bin/nvidia-smi', '/usr/local/cuda/bin/nvidia-smi', '/usr/lib/wsl/lib/nvidia-smi'];
+  for (const candidate of candidates) {
+    const processes = await collectNvidiaProcessUsageWith(candidate, fields);
+    if (processes) return processes;
+  }
+  return [];
+}
+
+async function collectNvidiaProcessUsageWith(bin: string, fields: string[]): Promise<Array<Record<string, unknown>> | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      bin,
+      [`--query-compute-apps=${fields.join(',')}`, '--format=csv,noheader,nounits'],
+      { timeout: 3000 }
+    );
+    return stdout.trim().split('\n').filter(Boolean).flatMap((line) => {
+      const [pid, processName, gpuUuid, usedMemory] = line.split(',').map((value) => value.trim());
+      const parsedPid = Number(pid);
+      if (!Number.isFinite(parsedPid)) return [];
+      return [{
+        pid: parsedPid,
+        process_name: safeCommandName(processName || 'unknown'),
+        gpu_uuid: gpuUuid || null,
+        vram_used_mb: numberOrNull(usedMemory)
+      }];
+    }).slice(0, 25);
+  } catch {
+    return null;
+  }
+}
+
+function enrichProcessWithGpu(processItem: Record<string, unknown>, gpuUsage?: Record<string, unknown>): Record<string, unknown> {
+  if (!gpuUsage) return processItem;
+  return {
+    ...processItem,
+    gpu: {
+      vram_used_mb: gpuUsage.vram_used_mb ?? null,
+      gpu_uuid: gpuUsage.gpu_uuid ?? null,
+      process_name: gpuUsage.process_name ?? null
+    }
+  };
 }
 
 async function collectNvidiaGpuWith(bin: string, fields: string[]): Promise<Record<string, unknown>[] | null> {
