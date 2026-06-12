@@ -23,6 +23,7 @@ import { runTask } from './task-runner.js';
 import { readManualEnabled } from './control.js';
 import { runDeployUpdate } from './deploy.js';
 import { OllamaClient } from './ollama.js';
+import { logger, safeLogError } from './logger.js';
 
 export class RouterConnection extends EventEmitter {
   private socket: WebSocket | null = null;
@@ -283,6 +284,15 @@ export class RouterConnection extends EventEmitter {
   private async handleModelInstall(payload: ModelInstallPayload): Promise<void> {
     const startedAt = new Date();
     const startedAtMs = Date.now();
+    logger.info({
+      event: 'model_install_received',
+      host_id: this.hostId,
+      command_id: payload.command_id,
+      model: payload.model,
+      allow_model_pull: this.config.allowModelPull,
+      timeout_ms: payload.timeout_ms,
+      requirements: payload.requirements
+    });
     this.setModelInstallState({
       active: {
         command_id: payload.command_id,
@@ -296,13 +306,38 @@ export class RouterConnection extends EventEmitter {
     void this.sendHeartbeat();
     try {
       if (!this.config.allowModelPull) {
+        logger.warn({
+          event: 'model_install_blocked',
+          host_id: this.hostId,
+          command_id: payload.command_id,
+          model: payload.model,
+          reason: 'CLIENT_ALLOW_MODEL_PULL=false'
+        });
         throw new Error('Model install is disabled by CLIENT_ALLOW_MODEL_PULL=false');
       }
       const resources = await collectResources();
       const compatibility = evaluateModelInstallCompatibility(resources, payload.requirements);
-      if (!compatibility.compatible) throw new Error(compatibility.reason);
+      if (!compatibility.compatible) {
+        logger.warn({
+          event: 'model_install_blocked',
+          host_id: this.hostId,
+          command_id: payload.command_id,
+          model: payload.model,
+          reason: compatibility.reason
+        });
+        throw new Error(compatibility.reason);
+      }
       const ollama = new OllamaClient(this.config.ollamaBaseUrl);
       const installedBefore = await ollama.hasModel(payload.model);
+      logger.info({
+        event: 'model_install_started',
+        host_id: this.hostId,
+        command_id: payload.command_id,
+        model: payload.model,
+        status: installedBefore ? 'verifying_existing' : 'pulling',
+        installed_before: installedBefore,
+        compatibility: compatibility.reason
+      });
       this.setModelInstallState({
         active: {
           command_id: payload.command_id,
@@ -327,6 +362,15 @@ export class RouterConnection extends EventEmitter {
       });
       this.setModelInstallState({ active: null, last: telemetry });
       void this.sendHeartbeat();
+      logger.info({
+        event: 'model_install_succeeded',
+        host_id: this.hostId,
+        command_id: payload.command_id,
+        model: payload.model,
+        duration_ms: telemetry.duration_ms,
+        installed_before: telemetry.installed_before,
+        installed_after: telemetry.installed_after
+      });
       this.sendModelInstallResult({ command_id: payload.command_id, host_id: this.hostId, model: payload.model, status: 'succeeded', telemetry });
     } catch (error) {
       const safeError = safeModelInstallFailure(error);
@@ -336,6 +380,15 @@ export class RouterConnection extends EventEmitter {
       });
       this.setModelInstallState({ active: null, last: telemetry });
       void this.sendHeartbeat();
+      logger.warn({
+        event: 'model_install_failed',
+        host_id: this.hostId,
+        command_id: payload.command_id,
+        model: payload.model,
+        duration_ms: telemetry.duration_ms,
+        error: safeError,
+        cause: safeLogError(error)
+      });
       this.sendModelInstallResult({
         command_id: payload.command_id,
         host_id: this.hostId,
