@@ -85,4 +85,31 @@ describe('OllamaClient', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it('uses the requested task timeout for PowerShell chat calls', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-ollama-powershell-chat-'));
+    try {
+      const bin = path.join(dir, 'powershell.exe');
+      const encodedPath = path.join(dir, 'encoded.txt');
+      await writeFile(bin, [
+        '#!/bin/sh',
+        `printf '%s' "$4" > ${JSON.stringify(encodedPath)}`,
+        'printf \'{"message":{"content":"{\\"label\\":\\"other\\",\\"confidence\\":0.9,\\"reason\\":\\"ok\\"}"}}\'',
+        ''
+      ].join('\n'));
+      await chmod(bin, 0o700);
+      process.env.WSL_DISTRO_NAME = 'Ubuntu';
+      process.env.POWERSHELL_PATH = bin;
+
+      const client = new OllamaClient('http://127.0.0.1:9');
+      await client.chat({ model: 'qwen3:1.7b', messages: [], stream: false }, 60_000);
+
+      const encoded = await readFile(encodedPath, 'utf8');
+      const command = Buffer.from(encoded, 'base64').toString('utf16le');
+      expect(command).toContain('/api/chat');
+      expect(command).toContain('-TimeoutSec 60');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

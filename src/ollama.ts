@@ -84,7 +84,8 @@ export class OllamaClient {
       return await this.tryRequestJson('/api/chat', {
         method: 'POST',
         body,
-        signal: timeoutSignal
+        signal: timeoutSignal,
+        timeoutMs
       }) as Record<string, unknown>;
     } finally {
       cleanup();

@@ -510,6 +510,9 @@ function safeTaskFailure(error: unknown): { code: string; message: string } {
   if (message.startsWith('Ollama returned') || message.startsWith('Ollama pull returned')) {
     return { code: 'ollama_request_failed', message: 'Ollama request failed' };
   }
+  if (message.includes('Windows PowerShell Ollama request timed out')) {
+    return { code: 'ollama_request_timeout', message: 'Ollama request timed out' };
+  }
   if (message.includes('fetch failed') || message.includes('aborted')) {
     return { code: 'ollama_unavailable', message: 'Ollama is unavailable' };
   }
