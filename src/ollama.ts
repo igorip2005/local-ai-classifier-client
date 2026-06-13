@@ -49,6 +49,11 @@ export type OllamaRequestDiagnostics = {
   attempts?: OllamaRequestDiagnostics[];
 };
 
+const diagnosticsStringPreviewChars = 1_000;
+const diagnosticsResponsePreviewChars = 4_000;
+const diagnosticsArrayItemLimit = 12;
+const diagnosticsObjectKeyLimit = 40;
+
 export class OllamaRequestError extends Error {
   constructor(message: string, readonly diagnostics: OllamaRequestDiagnostics) {
     super(message);
@@ -192,7 +197,7 @@ export class OllamaClient {
       attempts
     };
     if (options.timeoutMs !== undefined) diagnostics.timeout_ms = options.timeoutMs;
-    if (options.body !== undefined) diagnostics.request_body = options.body;
+    if (options.body !== undefined) diagnostics.request_body = summarizeDiagnosticValue(options.body);
     if (lastError instanceof OllamaRequestError) throw new OllamaRequestError(lastError.message, diagnostics);
     throw new OllamaRequestError(lastError instanceof Error ? lastError.message : 'Ollama request failed', diagnostics);
   }
@@ -239,7 +244,7 @@ async function requestJsonDetailed(
     started_at: startedAt.toISOString()
   };
   if (options.timeoutMs !== undefined) baseDiagnostics.timeout_ms = options.timeoutMs;
-  if (options.body !== undefined) baseDiagnostics.request_body = options.body;
+  if (options.body !== undefined) baseDiagnostics.request_body = summarizeDiagnosticValue(options.body);
   if (target.kind === 'windows-powershell') {
     try {
       const text = await windowsPowerShellRequest(`${target.baseUrl}${path}`, options);
@@ -305,7 +310,7 @@ async function windowsPowerShellRequest(
           timeout_ms: timeoutMs,
           stdout: stdout.slice(0, 20_000),
           stderr: stderr.slice(0, 20_000),
-          error: error.message
+          error: formatExecErrorMessage(error)
         }));
         return;
       }
@@ -334,7 +339,7 @@ function finishDiagnostics(
     finished_at: finishedAt.toISOString(),
     duration_ms: finishedAt.getTime() - startedMs,
     response_bytes: Buffer.byteLength(responseText, 'utf8'),
-    response_text: responseText.slice(0, 50_000)
+    response_text: truncateString(redactDiagnosticText(responseText), diagnosticsResponsePreviewChars)
   };
   if (body && typeof body === 'object' && !Array.isArray(body)) {
     diagnostics.response_json_keys = Object.keys(body as Record<string, unknown>);
@@ -378,7 +383,7 @@ function diagnosticsFromError(
     error: error instanceof Error ? error.message : String(error)
   };
   if (options.timeoutMs !== undefined) diagnostics.timeout_ms = options.timeoutMs;
-  if (options.body !== undefined) diagnostics.request_body = options.body;
+  if (options.body !== undefined) diagnostics.request_body = summarizeDiagnosticValue(options.body);
   return diagnostics;
 }
 
@@ -387,7 +392,16 @@ function formatPowerShellError(error: Error & { killed?: boolean; signal?: strin
   if (error.killed || error.signal === 'SIGTERM' || detail.includes('ETIMEDOUT')) {
     return `Windows PowerShell Ollama request timed out after ${timeoutMs}ms`;
   }
+  if (detail.includes('-EncodedCommand') || detail.length > diagnosticsStringPreviewChars) {
+    return `Windows PowerShell Ollama request failed: ${formatExecErrorMessage(error)}`;
+  }
   return detail;
+}
+
+function formatExecErrorMessage(error: Error): string {
+  if (error.message.includes('Invalid argument')) return 'Invalid argument';
+  if (error.message.includes('spawn')) return error.message.split('\n')[0] ?? 'spawn failed';
+  return truncateString(error.message, diagnosticsStringPreviewChars);
 }
 
 async function windowsPowerShellBin(): Promise<string> {
@@ -412,6 +426,52 @@ async function windowsPowerShellBin(): Promise<string> {
 
 function psString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
+}
+
+function summarizeDiagnosticValue(value: unknown, depth = 0): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return summarizeString(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    return {
+      item_count: value.length,
+      items: value.slice(0, diagnosticsArrayItemLimit).map((item) => summarizeDiagnosticValue(item, depth + 1)),
+      truncated: value.length > diagnosticsArrayItemLimit
+    };
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    const output: Record<string, unknown> = {};
+    for (const [key, entryValue] of entries.slice(0, diagnosticsObjectKeyLimit)) {
+      output[key] = summarizeDiagnosticValue(entryValue, depth + 1);
+    }
+    if (entries.length > diagnosticsObjectKeyLimit) {
+      output.__truncated_keys = entries.length - diagnosticsObjectKeyLimit;
+    }
+    return output;
+  }
+  return String(value);
+}
+
+function summarizeString(value: string): Record<string, unknown> {
+  const redacted = redactDiagnosticText(value);
+  return {
+    chars: value.length,
+    bytes: Buffer.byteLength(value, 'utf8'),
+    preview: truncateString(redacted, diagnosticsStringPreviewChars),
+    truncated: value.length > diagnosticsStringPreviewChars
+  };
+}
+
+function truncateString(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars)}...[truncated ${value.length - maxChars} chars]`;
+}
+
+function redactDiagnosticText(value: string): string {
+  return value
+    .replace(/\b(api[_-]?key|token|secret|password|passwd|authorization)\s*[:=]\s*["']?[^"'\s,;)}]+/gi, '$1=[redacted]')
+    .replace(/\b(bearer)\s+[a-z0-9._~+/=-]+/gi, '$1 [redacted]');
 }
 
 function normalizeWindowsLocalOllamaUrl(baseUrl: string): string {

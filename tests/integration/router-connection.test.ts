@@ -530,7 +530,12 @@ describe('RouterConnection', () => {
     });
     expect(errorEnvelope.payload.error.details.diagnostics.path).toBe('/api/chat');
     expect(errorEnvelope.payload.error.details.diagnostics.attempts[0].response_status).toBe(500);
-    expect(JSON.stringify(errorEnvelope.payload.error.details)).toContain(sensitiveText);
+    expect(JSON.stringify(errorEnvelope.payload.error.details)).not.toContain(sensitiveText);
+    expect(errorEnvelope.payload.error.details.diagnostics.request_body.messages.items[0].content).toMatchObject({
+      chars: expect.any(Number),
+      bytes: expect.any(Number),
+      preview: expect.any(String)
+    });
     expect(errorEnvelope.payload.trace_events).toEqual(expect.arrayContaining([
       expect.objectContaining({ phase: 'ollama_chat_initial', status: 'failed' })
     ]));

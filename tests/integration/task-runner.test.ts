@@ -85,6 +85,49 @@ describe('runTask', () => {
     expect(result.raw_model_response).toHaveProperty('repair');
   });
 
+  it('returns fallback classification when invalid JSON repair request fails', async () => {
+    let chatCalls = 0;
+    server = http.createServer((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen2.5:0.5b' }] }));
+      if (req.url === '/api/ps') return res.end(JSON.stringify({ models: [] }));
+      if (req.url === '/api/chat') {
+        chatCalls += 1;
+        if (chatCalls === 1) {
+          return res.end(JSON.stringify({ message: { content: 'not valid json'.repeat(2_000) } }));
+        }
+        res.statusCode = 500;
+        return res.end(JSON.stringify({ error: 'repair failed' }));
+      }
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing server port');
+    const config = loadConfig({ OLLAMA_BASE_URL: `http://127.0.0.1:${address.port}` });
+
+    const result = await runTask(config, {
+      task_id: 'invalid-json-repair-fail-task-1',
+      kind: 'classify_message',
+      priority: 80,
+      model: 'qwen2.5:0.5b',
+      timeout_ms: 5000,
+      input: { text: 'unmatched message', classes: ['sales', 'support', 'spam', 'other'] },
+      options: { temperature: 0, num_ctx: 1024, think: false, stream: false }
+    });
+
+    expect(chatCalls).toBe(2);
+    expect(result.status).toBe('succeeded');
+    expect(result.output).toMatchObject({
+      label: 'other',
+      confidence: 0,
+      reason: 'Model did not return valid JSON'
+    });
+    expect(result.trace_events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ phase: 'ollama_chat_repair', status: 'failed' }),
+      expect.objectContaining({ phase: 'classification_repair_fallback', status: 'info' })
+    ]));
+  });
+
   it('runs chat completion tasks against fake Ollama', async () => {
     server = http.createServer((req, res) => {
       res.setHeader('content-type', 'application/json');

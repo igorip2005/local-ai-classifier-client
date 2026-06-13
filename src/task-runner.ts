@@ -4,6 +4,9 @@ import type { TaskClientTraceEvent, TaskResultPayload, TaskStartPayload } from '
 import { writeLocalTaskLog } from './local-log.js';
 import { applyClassificationGuardrails, type Classification } from './classification-rules.js';
 
+const maxRepairOriginalMessageChars = 1_500;
+const maxRepairRawOutputChars = 1_500;
+
 export async function runTask(config: ClientConfig, task: TaskStartPayload, signal?: AbortSignal): Promise<TaskResultPayload> {
   const traceEvents: TaskClientTraceEvent[] = [];
   try {
@@ -28,16 +31,24 @@ export async function runTask(config: ClientConfig, task: TaskStartPayload, sign
     let finalRaw = raw;
     let modelOutput = normalized.output;
     if (!normalized.validJson) {
-      const repair = await runOllamaChat(
-        ollama,
-        buildRepairChatBody(task.model, normalized.rawContent, task.input.text ?? '', classes),
-        task.timeout_ms,
-        'ollama_chat_repair',
-        traceEvents,
-        signal
-      );
-      finalRaw = repair.response;
-      modelOutput = normalizeModelResponse(finalRaw, classes).output;
+      try {
+        const repair = await runOllamaChat(
+          ollama,
+          buildRepairChatBody(task.model, normalized.rawContent, task.input.text ?? '', classes),
+          task.timeout_ms,
+          'ollama_chat_repair',
+          traceEvents,
+          signal
+        );
+        finalRaw = repair.response;
+        modelOutput = normalizeModelResponse(finalRaw, classes).output;
+      } catch (error) {
+        traceEvents.push(traceEvent('classification_repair_fallback', 'info', null, {
+          reason: 'repair_request_failed',
+          error_code: error instanceof OllamaRequestError ? 'ollama_request_failed' : 'repair_failed',
+          fallback_label: modelOutput.label
+        }));
+      }
     }
     const output = applyClassificationGuardrails(
       modelOutput,
@@ -164,6 +175,8 @@ function buildPrompt(text: string, classes: string[]): string {
 }
 
 function buildRepairChatBody(model: string, rawContent: string | null, text: string, classes: string[]): Record<string, unknown> {
+  const original = truncateForRepair(text, maxRepairOriginalMessageChars);
+  const invalidOutput = truncateForRepair(rawContent ?? '', maxRepairRawOutputChars);
   return {
     model,
     stream: false,
@@ -177,12 +190,21 @@ function buildRepairChatBody(model: string, rawContent: string | null, text: str
           'Allowed labels:',
           classes.join(', '),
           'Required schema: {"label":"one_label","confidence":0.0,"reason":"short reason"}.',
-          `Original message: ${JSON.stringify(text)}`,
-          `Invalid model output: ${JSON.stringify(rawContent ?? '')}`
+          `Original message preview: ${JSON.stringify(original.value)}`,
+          `Original message chars: ${text.length}`,
+          `Original message truncated: ${original.truncated}`,
+          `Invalid model output preview: ${JSON.stringify(invalidOutput.value)}`,
+          `Invalid model output chars: ${(rawContent ?? '').length}`,
+          `Invalid model output truncated: ${invalidOutput.truncated}`
         ].join('\n')
       }
     ]
   };
+}
+
+function truncateForRepair(value: string, maxChars: number): { value: string; truncated: boolean } {
+  if (value.length <= maxChars) return { value, truncated: false };
+  return { value: value.slice(0, maxChars), truncated: true };
 }
 
 function normalizeModelResponse(raw: Record<string, unknown>, classes: string[]): { output: Classification; validJson: boolean; rawContent: string | null } {
