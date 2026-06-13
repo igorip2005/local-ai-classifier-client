@@ -22,7 +22,7 @@ import {
 import { runTask, TaskExecutionError } from './task-runner.js';
 import { readManualEnabled } from './control.js';
 import { runDeployUpdate } from './deploy.js';
-import { OllamaClient } from './ollama.js';
+import { OllamaClient, OllamaRequestError } from './ollama.js';
 import { logger, safeLogError } from './logger.js';
 
 export class RouterConnection extends EventEmitter {
@@ -359,7 +359,7 @@ export class RouterConnection extends EventEmitter {
         }
       });
       void this.sendHeartbeat();
-      await ollama.pullModel(payload.model, payload.timeout_ms);
+      const pullDiagnostics = await ollama.pullModelWithDiagnostics(payload.model, payload.timeout_ms);
       await this.refreshCapabilities();
       const installedAfter = await ollama.hasModel(payload.model);
       if (!installedAfter) {
@@ -369,7 +369,8 @@ export class RouterConnection extends EventEmitter {
         status: 'succeeded',
         compatibility: compatibility.reason,
         installed_before: installedBefore,
-        installed_after: installedAfter
+        installed_after: installedAfter,
+        pull_diagnostics: pullDiagnostics
       });
       this.setModelInstallState({ active: null, last: telemetry });
       void this.sendHeartbeat();
@@ -387,7 +388,8 @@ export class RouterConnection extends EventEmitter {
       const safeError = safeModelInstallFailure(error);
       const telemetry = modelInstallTelemetry(payload, startedAt, startedAtMs, {
         status: 'failed',
-        error: safeError
+        error: safeError,
+        error_diagnostics: error instanceof OllamaRequestError ? error.diagnostics : undefined
       });
       this.setModelInstallState({ active: null, last: telemetry });
       void this.sendHeartbeat();
