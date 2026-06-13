@@ -29,6 +29,33 @@ export type OllamaHealth = {
   target_url?: string;
 };
 
+export type OllamaRequestDiagnostics = {
+  path: string;
+  method: string;
+  timeout_ms?: number;
+  target_kind?: OllamaTarget['kind'];
+  target_url?: string;
+  started_at?: string;
+  finished_at?: string;
+  duration_ms?: number;
+  request_body?: unknown;
+  response_status?: number;
+  response_bytes?: number;
+  response_text?: string;
+  response_json_keys?: string[];
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+  attempts?: OllamaRequestDiagnostics[];
+};
+
+export class OllamaRequestError extends Error {
+  constructor(message: string, readonly diagnostics: OllamaRequestDiagnostics) {
+    super(message);
+    this.name = 'OllamaRequestError';
+  }
+}
+
 type OllamaTarget =
   | { kind: 'http'; baseUrl: string }
   | { kind: 'windows-powershell'; baseUrl: string };
@@ -65,28 +92,42 @@ export class OllamaClient {
   }
 
   async pullModel(modelName: string, timeoutMs: number, signal?: AbortSignal): Promise<void> {
+    await this.pullModelWithDiagnostics(modelName, timeoutMs, signal);
+  }
+
+  async pullModelWithDiagnostics(modelName: string, timeoutMs: number, signal?: AbortSignal): Promise<OllamaRequestDiagnostics> {
     const { signal: timeoutSignal, cleanup } = timeoutAbortSignal(timeoutMs, signal);
     try {
-      await this.tryRequestJson('/api/pull', {
+      const result = await this.tryRequestJsonDetailed('/api/pull', {
         method: 'POST',
-        body: { name: modelName, stream: false },
+        body: { name: modelName, stream: true },
         signal: timeoutSignal,
         timeoutMs
       });
+      return result.diagnostics;
     } finally {
       cleanup();
     }
   }
 
   async chat(body: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    return (await this.chatWithDiagnostics(body, timeoutMs, signal)).response;
+  }
+
+  async chatWithDiagnostics(
+    body: Record<string, unknown>,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<{ response: Record<string, unknown>; diagnostics: OllamaRequestDiagnostics }> {
     const { signal: timeoutSignal, cleanup } = timeoutAbortSignal(timeoutMs, signal);
     try {
-      return await this.tryRequestJson('/api/chat', {
+      const result = await this.tryRequestJsonDetailed('/api/chat', {
         method: 'POST',
         body,
         signal: timeoutSignal,
         timeoutMs
-      }) as Record<string, unknown>;
+      });
+      return { response: result.body as Record<string, unknown>, diagnostics: result.diagnostics };
     } finally {
       cleanup();
     }
@@ -127,15 +168,33 @@ export class OllamaClient {
     path: string,
     options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal; timeoutMs?: number } = {}
   ): Promise<unknown> {
+    return (await this.tryRequestJsonDetailed(path, options)).body;
+  }
+
+  private async tryRequestJsonDetailed(
+    path: string,
+    options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal; timeoutMs?: number } = {}
+  ): Promise<{ body: unknown; diagnostics: OllamaRequestDiagnostics }> {
     let lastError: unknown = null;
+    const attempts: OllamaRequestDiagnostics[] = [];
     for (const target of await this.candidateTargets()) {
       try {
-        return await requestJson(target, path, options);
+        const result = await requestJsonDetailed(target, path, options);
+        return { ...result, diagnostics: { ...result.diagnostics, attempts } };
       } catch (error) {
         lastError = error;
+        attempts.push(diagnosticsFromError(error, target, path, options));
       }
     }
-    throw lastError instanceof Error ? lastError : new Error('Ollama request failed');
+    const diagnostics: OllamaRequestDiagnostics = {
+      path,
+      method: options.method ?? 'GET',
+      attempts
+    };
+    if (options.timeoutMs !== undefined) diagnostics.timeout_ms = options.timeoutMs;
+    if (options.body !== undefined) diagnostics.request_body = options.body;
+    if (lastError instanceof OllamaRequestError) throw new OllamaRequestError(lastError.message, diagnostics);
+    throw new OllamaRequestError(lastError instanceof Error ? lastError.message : 'Ollama request failed', diagnostics);
   }
 
   private async candidateTargets(): Promise<OllamaTarget[]> {
@@ -161,21 +220,57 @@ async function requestJson(
   path: string,
   options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<unknown> {
+  return (await requestJsonDetailed(target, path, options)).body;
+}
+
+async function requestJsonDetailed(
+  target: OllamaTarget,
+  path: string,
+  options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; signal?: AbortSignal; timeoutMs?: number } = {}
+): Promise<{ body: unknown; diagnostics: OllamaRequestDiagnostics }> {
+  const startedMs = Date.now();
+  const startedAt = new Date();
+  const method = options.method ?? 'GET';
+  const baseDiagnostics: OllamaRequestDiagnostics = {
+    path,
+    method,
+    target_kind: target.kind,
+    target_url: target.baseUrl,
+    started_at: startedAt.toISOString()
+  };
+  if (options.timeoutMs !== undefined) baseDiagnostics.timeout_ms = options.timeoutMs;
+  if (options.body !== undefined) baseDiagnostics.request_body = options.body;
   if (target.kind === 'windows-powershell') {
-    const text = await windowsPowerShellRequest(`${target.baseUrl}${path}`, options);
-    return safeJson(text) ?? {};
+    try {
+      const text = await windowsPowerShellRequest(`${target.baseUrl}${path}`, options);
+      const body = parseOllamaText(text);
+      return {
+        body,
+        diagnostics: finishDiagnostics(baseDiagnostics, startedMs, text, body)
+      };
+    } catch (error) {
+      throw augmentOllamaError(error, baseDiagnostics, startedMs);
+    }
   }
 
-  const init: RequestInit = { method: options.method ?? 'GET' };
+  const init: RequestInit = { method };
   if (options.body) {
     init.headers = { 'content-type': 'application/json' };
     init.body = JSON.stringify(options.body);
   }
   if (options.signal) init.signal = options.signal;
-  const response = await fetch(`${target.baseUrl}${path}`, init);
-  const text = await response.text();
-  if (!response.ok) throw new Error(`Ollama returned ${response.status}: ${text.slice(0, 200)}`);
-  return safeJson(text) ?? {};
+  try {
+    const response = await fetch(`${target.baseUrl}${path}`, init);
+    const text = await response.text();
+    const body = parseOllamaText(text);
+    const diagnostics = finishDiagnostics({ ...baseDiagnostics, response_status: response.status }, startedMs, text, body);
+    if (!response.ok) {
+      throw new OllamaRequestError(`Ollama returned ${response.status}: ${text.slice(0, 500)}`, diagnostics);
+    }
+    return { body, diagnostics };
+  } catch (error) {
+    throw augmentOllamaError(error, baseDiagnostics, startedMs);
+  }
 }
 
 async function windowsPowerShellRequest(
@@ -204,12 +299,87 @@ async function windowsPowerShellRequest(
       signal: options.signal
     }, (error, stdout, stderr) => {
       if (error) {
-        reject(new Error(formatPowerShellError(error, stderr, timeoutMs)));
+        reject(new OllamaRequestError(formatPowerShellError(error, stderr, timeoutMs), {
+          path: new URL(url).pathname,
+          method,
+          timeout_ms: timeoutMs,
+          stdout: stdout.slice(0, 20_000),
+          stderr: stderr.slice(0, 20_000),
+          error: error.message
+        }));
         return;
       }
       resolve(stdout);
     });
   });
+}
+
+function parseOllamaText(text: string): Record<string, unknown> {
+  const direct = safeJson(text);
+  if (direct) return direct;
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const events = lines.map((line) => safeJson(line) ?? { raw: line });
+  return events.length ? { stream_events: events } : {};
+}
+
+function finishDiagnostics(
+  base: OllamaRequestDiagnostics,
+  startedMs: number,
+  responseText: string,
+  body: unknown
+): OllamaRequestDiagnostics {
+  const finishedAt = new Date();
+  const diagnostics: OllamaRequestDiagnostics = {
+    ...base,
+    finished_at: finishedAt.toISOString(),
+    duration_ms: finishedAt.getTime() - startedMs,
+    response_bytes: Buffer.byteLength(responseText, 'utf8'),
+    response_text: responseText.slice(0, 50_000)
+  };
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    diagnostics.response_json_keys = Object.keys(body as Record<string, unknown>);
+  }
+  return diagnostics;
+}
+
+function augmentOllamaError(
+  error: unknown,
+  base: OllamaRequestDiagnostics,
+  startedMs: number
+): OllamaRequestError {
+  if (error instanceof OllamaRequestError) {
+    return new OllamaRequestError(error.message, {
+      ...base,
+      ...error.diagnostics,
+      finished_at: new Date().toISOString(),
+      duration_ms: Date.now() - startedMs
+    });
+  }
+  return new OllamaRequestError(error instanceof Error ? error.message : 'Ollama request failed', {
+    ...base,
+    finished_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedMs,
+    error: error instanceof Error ? error.message : String(error)
+  });
+}
+
+function diagnosticsFromError(
+  error: unknown,
+  target: OllamaTarget,
+  path: string,
+  options: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; timeoutMs?: number }
+): OllamaRequestDiagnostics {
+  if (error instanceof OllamaRequestError) return error.diagnostics;
+  const diagnostics: OllamaRequestDiagnostics = {
+    path,
+    method: options.method ?? 'GET',
+    target_kind: target.kind,
+    target_url: target.baseUrl,
+    error: error instanceof Error ? error.message : String(error)
+  };
+  if (options.timeoutMs !== undefined) diagnostics.timeout_ms = options.timeoutMs;
+  if (options.body !== undefined) diagnostics.request_body = options.body;
+  return diagnostics;
 }
 
 function formatPowerShellError(error: Error & { killed?: boolean; signal?: string; code?: unknown }, stderr: string, timeoutMs: number): string {

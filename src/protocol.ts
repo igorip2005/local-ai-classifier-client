@@ -74,6 +74,7 @@ export type TaskResultPayload = {
   output: Record<string, unknown>;
   metering: Record<string, unknown>;
   raw_model_response: unknown;
+  trace_events?: TaskClientTraceEvent[];
 };
 
 export type TaskErrorPayload = {
@@ -81,6 +82,16 @@ export type TaskErrorPayload = {
   job_id?: string;
   status: 'failed';
   error: { code: string; message: string; details?: unknown };
+  trace_events?: TaskClientTraceEvent[];
+};
+
+export type TaskClientTraceEvent = {
+  phase: string;
+  status?: 'ok' | 'failed' | 'skipped' | 'info';
+  started_at?: string;
+  finished_at?: string;
+  duration_ms?: number;
+  meta?: Record<string, unknown>;
 };
 
 export type TaskCancelPayload = {

@@ -1,73 +1,105 @@
 import type { ClientConfig } from './config.js';
-import { OllamaClient } from './ollama.js';
-import type { TaskResultPayload, TaskStartPayload } from './protocol.js';
+import { OllamaClient, OllamaRequestError, type OllamaRequestDiagnostics } from './ollama.js';
+import type { TaskClientTraceEvent, TaskResultPayload, TaskStartPayload } from './protocol.js';
 import { writeLocalTaskLog } from './local-log.js';
 import { applyClassificationGuardrails, type Classification } from './classification-rules.js';
 
 export async function runTask(config: ClientConfig, task: TaskStartPayload, signal?: AbortSignal): Promise<TaskResultPayload> {
-  await ensureTaskModel(config, task.model, task.timeout_ms, signal);
-  if (task.kind === 'chat_completion') return await runChatCompletion(config, task, signal);
-  if (task.kind !== 'classify_message' && task.kind !== 'classify_batch_item') {
-    throw new Error(`Unsupported task kind: ${task.kind}`);
+  const traceEvents: TaskClientTraceEvent[] = [];
+  try {
+    traceEvents.push(...await ensureTaskModel(config, task.model, task.timeout_ms, signal));
+    if (task.kind === 'chat_completion') return await runChatCompletion(config, task, traceEvents, signal);
+    if (task.kind !== 'classify_message' && task.kind !== 'classify_batch_item') {
+      throw new Error(`Unsupported task kind: ${task.kind}`);
+    }
+
+    const started = Date.now();
+    const ollama = new OllamaClient(config.ollamaBaseUrl);
+    const body = buildClassifyChatBody(task);
+    const initial = await runOllamaChat(ollama, body, task.timeout_ms, 'ollama_chat_initial', traceEvents, signal);
+    const raw = initial.response;
+    const classes = task.input.classes ?? ['sales', 'support', 'spam', 'other'];
+    const normalized = normalizeModelResponse(raw, classes);
+    traceEvents.push(traceEvent('model_response_normalized', 'ok', null, {
+      valid_json: normalized.validJson,
+      output_label: normalized.output.label,
+      output_confidence: normalized.output.confidence
+    }));
+    let finalRaw = raw;
+    let modelOutput = normalized.output;
+    if (!normalized.validJson) {
+      const repair = await runOllamaChat(
+        ollama,
+        buildRepairChatBody(task.model, normalized.rawContent, task.input.text ?? '', classes),
+        task.timeout_ms,
+        'ollama_chat_repair',
+        traceEvents,
+        signal
+      );
+      finalRaw = repair.response;
+      modelOutput = normalizeModelResponse(finalRaw, classes).output;
+    }
+    const output = applyClassificationGuardrails(
+      modelOutput,
+      task.input.text ?? '',
+      classes
+    );
+    const durationMs = Date.now() - started;
+
+    await writeLocalTaskLog(config, {
+      task_id: task.task_id,
+      model: task.model,
+      status: 'succeeded',
+      duration_ms: durationMs,
+      output
+    });
+
+    const result: TaskResultPayload = {
+      task_id: task.task_id,
+      status: 'succeeded',
+      output,
+      metering: extractMetering(finalRaw, durationMs),
+      raw_model_response: finalRaw === raw ? raw : { initial: raw, repair: finalRaw },
+      trace_events: traceEvents
+    };
+    if (task.job_id) result.job_id = task.job_id;
+    return result;
+  } catch (error) {
+    throw taskExecutionError(error, traceEvents);
   }
-
-  const started = Date.now();
-  const ollama = new OllamaClient(config.ollamaBaseUrl);
-  const body = buildClassifyChatBody(task);
-  const raw = await ollama.chat(body, task.timeout_ms, signal);
-  const classes = task.input.classes ?? ['sales', 'support', 'spam', 'other'];
-  const normalized = normalizeModelResponse(raw, classes);
-  let finalRaw = raw;
-  let modelOutput = normalized.output;
-  if (!normalized.validJson) {
-    finalRaw = await ollama.chat(buildRepairChatBody(task.model, normalized.rawContent, task.input.text ?? '', classes), task.timeout_ms, signal);
-    modelOutput = normalizeModelResponse(finalRaw, classes).output;
-  }
-  const output = applyClassificationGuardrails(
-    modelOutput,
-    task.input.text ?? '',
-    classes
-  );
-  const durationMs = Date.now() - started;
-
-  await writeLocalTaskLog(config, {
-    task_id: task.task_id,
-    model: task.model,
-    status: 'succeeded',
-    duration_ms: durationMs,
-    output
-  });
-
-  const result: TaskResultPayload = {
-    task_id: task.task_id,
-    status: 'succeeded',
-    output,
-    metering: extractMetering(finalRaw, durationMs),
-    raw_model_response: finalRaw === raw ? raw : { initial: raw, repair: finalRaw }
-  };
-  if (task.job_id) result.job_id = task.job_id;
-  return result;
 }
 
-async function ensureTaskModel(config: ClientConfig, model: string, timeoutMs: number, signal?: AbortSignal): Promise<void> {
+async function ensureTaskModel(config: ClientConfig, model: string, timeoutMs: number, signal?: AbortSignal): Promise<TaskClientTraceEvent[]> {
+  const traceEvents: TaskClientTraceEvent[] = [];
   const ollama = new OllamaClient(config.ollamaBaseUrl);
-  if (await ollama.hasModel(model)) return;
+  const checkStarted = new Date();
+  const installed = await ollama.hasModel(model);
+  traceEvents.push(traceEvent('ollama_model_check', 'ok', checkStarted, { model, installed }));
+  if (installed) return traceEvents;
   if (!config.allowModelPull) {
     throw new Error(`Model is not installed locally and model pull is disabled: ${model}`);
   }
-  await ollama.pullModel(model, timeoutMs, signal);
+  const pullStarted = new Date();
+  const diagnostics = await ollama.pullModelWithDiagnostics(model, timeoutMs, signal);
+  traceEvents.push(traceEvent('ollama_model_pull', 'ok', pullStarted, { model, diagnostics }));
+  return traceEvents;
 }
 
-async function runChatCompletion(config: ClientConfig, task: TaskStartPayload, signal?: AbortSignal): Promise<TaskResultPayload> {
+async function runChatCompletion(
+  config: ClientConfig,
+  task: TaskStartPayload,
+  traceEvents: TaskClientTraceEvent[],
+  signal?: AbortSignal
+): Promise<TaskResultPayload> {
   const started = Date.now();
   const ollama = new OllamaClient(config.ollamaBaseUrl);
-  const raw = await ollama.chat({
+  const raw = (await runOllamaChat(ollama, {
     model: task.model,
     stream: false,
     think: false,
     options: { temperature: task.options.temperature, num_ctx: task.options.num_ctx ?? 2048 },
     messages: task.input.messages ?? []
-  }, task.timeout_ms, signal);
+  }, task.timeout_ms, 'ollama_chat_completion', traceEvents, signal)).response;
   const durationMs = Date.now() - started;
   const content = typeof raw.message === 'object' && raw.message
     ? String((raw.message as { content?: unknown }).content ?? '')
@@ -77,10 +109,32 @@ async function runChatCompletion(config: ClientConfig, task: TaskStartPayload, s
     status: 'succeeded',
     output: { content },
     metering: extractMetering(raw, durationMs),
-    raw_model_response: raw
+    raw_model_response: raw,
+    trace_events: traceEvents
   };
   if (task.job_id) result.job_id = task.job_id;
   return result;
+}
+
+async function runOllamaChat(
+  ollama: OllamaClient,
+  body: Record<string, unknown>,
+  timeoutMs: number,
+  phase: string,
+  traceEvents: TaskClientTraceEvent[],
+  signal?: AbortSignal
+): Promise<{ response: Record<string, unknown>; diagnostics: OllamaRequestDiagnostics }> {
+  const started = new Date();
+  try {
+    const result = await ollama.chatWithDiagnostics(body, timeoutMs, signal);
+    traceEvents.push(traceEvent(phase, 'ok', started, { diagnostics: result.diagnostics }));
+    return result;
+  } catch (error) {
+    const meta: Record<string, unknown> = {};
+    if (error instanceof OllamaRequestError) meta.diagnostics = error.diagnostics;
+    traceEvents.push(traceEvent(phase, 'failed', started, meta));
+    throw error;
+  }
 }
 
 function buildClassifyChatBody(task: TaskStartPayload): Record<string, unknown> {
@@ -185,4 +239,41 @@ function extractMetering(raw: Record<string, unknown>, durationMs: number): Reco
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function traceEvent(
+  phase: string,
+  status: TaskClientTraceEvent['status'],
+  startedAt: Date | null,
+  meta?: Record<string, unknown>
+): TaskClientTraceEvent {
+  const finishedAt = new Date();
+  const event: TaskClientTraceEvent = {
+    phase,
+    finished_at: finishedAt.toISOString()
+  };
+  if (status !== undefined) event.status = status;
+  if (startedAt) {
+    event.started_at = startedAt.toISOString();
+    event.duration_ms = Math.max(0, finishedAt.getTime() - startedAt.getTime());
+  }
+  if (meta) event.meta = meta;
+  return event;
+}
+
+export class TaskExecutionError extends Error {
+  constructor(
+    cause: unknown,
+    readonly traceEvents: TaskClientTraceEvent[],
+    readonly details?: unknown
+  ) {
+    super(cause instanceof Error ? cause.message : 'Task failed');
+    this.name = 'TaskExecutionError';
+    this.cause = cause;
+  }
+}
+
+function taskExecutionError(error: unknown, traceEvents: TaskClientTraceEvent[]): TaskExecutionError {
+  const details = error instanceof OllamaRequestError ? { diagnostics: error.diagnostics } : undefined;
+  return new TaskExecutionError(error, traceEvents, details);
 }

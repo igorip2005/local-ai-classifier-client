@@ -459,7 +459,7 @@ describe('RouterConnection', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('does not send raw Ollama failure text back to the router', async () => {
+  it('sends safe task_error plus detailed Ollama diagnostics back to the router', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'local-ai-client-safe-task-error-'));
     const sensitiveText = 'customer message with api_key=secret-123';
     const ollama = http.createServer((req, res) => {
@@ -524,12 +524,16 @@ describe('RouterConnection', () => {
     }
 
     const errorEnvelope = received.map((raw) => JSON.parse(raw)).find((item) => item.type === 'task_error');
-    expect(errorEnvelope.payload.error).toEqual({
+    expect(errorEnvelope.payload.error).toMatchObject({
       code: 'ollama_request_failed',
       message: 'Ollama request failed'
     });
-    expect(JSON.stringify(errorEnvelope)).not.toContain(sensitiveText);
-    expect(JSON.stringify(errorEnvelope)).not.toContain('secret-123');
+    expect(errorEnvelope.payload.error.details.diagnostics.path).toBe('/api/chat');
+    expect(errorEnvelope.payload.error.details.diagnostics.attempts[0].response_status).toBe(500);
+    expect(JSON.stringify(errorEnvelope.payload.error.details)).toContain(sensitiveText);
+    expect(errorEnvelope.payload.trace_events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ phase: 'ollama_chat_initial', status: 'failed' })
+    ]));
   });
 
   it('aborts an in-flight task when the router sends task_cancel', async () => {

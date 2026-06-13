@@ -19,7 +19,7 @@ import {
   type TaskResultPayload,
   type TaskStartPayload
 } from './protocol.js';
-import { runTask } from './task-runner.js';
+import { runTask, TaskExecutionError } from './task-runner.js';
 import { readManualEnabled } from './control.js';
 import { runDeployUpdate } from './deploy.js';
 import { OllamaClient } from './ollama.js';
@@ -245,7 +245,7 @@ export class RouterConnection extends EventEmitter {
         this.sendTaskError(task, 'task_canceled', 'Task canceled by router');
       } else {
         const safeError = safeTaskFailure(error);
-        this.sendTaskError(task, safeError.code, safeError.message);
+        this.sendTaskError(task, safeError.code, safeError.message, safeError.details, safeError.trace_events);
       }
     } finally {
       this.taskControllers.delete(task.task_id);
@@ -262,12 +262,20 @@ export class RouterConnection extends EventEmitter {
     this.send({ type: 'task_result', request_id: randomUUID(), payload });
   }
 
-  private sendTaskError(task: TaskStartPayload, code: string, message: string): void {
+  private sendTaskError(
+    task: TaskStartPayload,
+    code: string,
+    message: string,
+    details?: unknown,
+    traceEvents?: TaskErrorPayload['trace_events']
+  ): void {
     const payload: TaskErrorPayload = {
       task_id: task.task_id,
       status: 'failed',
       error: { code, message }
     };
+    if (details !== undefined) payload.error.details = details;
+    if (traceEvents?.length) payload.trace_events = traceEvents;
     if (task.job_id) payload.job_id = task.job_id;
     this.send({ type: 'task_error', request_id: randomUUID(), payload });
   }
@@ -496,25 +504,28 @@ function signature(values: string[]): string {
   return values.join('|');
 }
 
-function safeTaskFailure(error: unknown): { code: string; message: string } {
-  // Router persists task_error payloads. IMPLEMENTATION_DETAILS.md sections 20
-  // and 22 require privacy-aware failure reporting, so never forward raw Ollama
-  // error bodies because they may include prompt or message text.
-  const message = error instanceof Error ? error.message : '';
+function safeTaskFailure(error: unknown): { code: string; message: string; details?: unknown; trace_events?: TaskErrorPayload['trace_events'] } {
+  // Keep the user-facing code/message stable while attaching full internal
+  // diagnostics separately for the router request viewer.
+  const taskError = error instanceof TaskExecutionError ? error : null;
+  const cause = taskError?.cause ?? error;
+  const message = cause instanceof Error ? cause.message : '';
+  const details = taskError?.details;
+  const trace_events = taskError?.traceEvents;
   if (message.startsWith('Model is not installed locally')) {
-    return { code: 'model_not_available', message: 'Requested model is not installed locally' };
+    return { code: 'model_not_available', message: 'Requested model is not installed locally', details, trace_events };
   }
   if (message.startsWith('Unsupported task kind')) {
-    return { code: 'unsupported_task_kind', message: 'Unsupported task kind' };
+    return { code: 'unsupported_task_kind', message: 'Unsupported task kind', details, trace_events };
   }
   if (message.startsWith('Ollama returned') || message.startsWith('Ollama pull returned')) {
-    return { code: 'ollama_request_failed', message: 'Ollama request failed' };
+    return { code: 'ollama_request_failed', message: 'Ollama request failed', details, trace_events };
   }
   if (message.includes('Windows PowerShell Ollama request timed out')) {
-    return { code: 'ollama_request_timeout', message: 'Ollama request timed out' };
+    return { code: 'ollama_request_timeout', message: 'Ollama request timed out', details, trace_events };
   }
   if (message.includes('fetch failed') || message.includes('aborted')) {
-    return { code: 'ollama_unavailable', message: 'Ollama is unavailable' };
+    return { code: 'ollama_unavailable', message: 'Ollama is unavailable', details, trace_events };
   }
-  return { code: 'task_failed', message: 'Task failed' };
+  return { code: 'task_failed', message: 'Task failed', details, trace_events };
 }
